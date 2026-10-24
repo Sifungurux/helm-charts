@@ -1,0 +1,16 @@
+colibri is serving {{ .Values.model.id }} inside the cluster:
+
+  OpenAI base URL:    http://{{ include "colibri.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}/v1
+  Anthropic base URL: http://{{ include "colibri.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+{{- if .Values.networkPolicy.enabled }}
+
+Only namespaces matching networkPolicy.ingressNamespaceSelector can reach it.
+{{- end }}
+{{- if .Values.apiKey.enabled }}
+Clients must send the key from Secret {{ .Values.apiKey.existingSecret }}/{{ .Values.apiKey.secretKey }}.
+{{- end }}
+{{- if .Values.modelDownload.enabled }}
+
+The model downloads in a Job; the server's init container waits until it is complete.
+{{- end }}
+Check readiness:  kubectl -n {{ .Release.Namespace }} exec deploy/{{ include "colibri.fullname" . }} -- coli doctor --model {{ include "colibri.modelPath" . }}

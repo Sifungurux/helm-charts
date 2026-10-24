@@ -1,0 +1,132 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "colibri.fullname" . }}
+  labels:
+    {{- include "colibri.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    # RWO node-local volume and a single model in RAM: never run two pods.
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "colibri.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        colibri/model-revision: {{ .Values.model.revision | quote }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "colibri.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: server
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      enableServiceLinks: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- if .Values.modelDownload.enabled }}
+      initContainers:
+        # Waits (no network needed) until the download Job has finished this
+        # exact revision, so the server starts once instead of crash-looping.
+        - name: wait-for-model
+          image: "{{ .Values.modelDownload.image.repository }}:{{ .Values.modelDownload.image.tag }}"
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              want="{{ .Values.model.repo }}@{{ .Values.model.revision }}"
+              marker="{{ include "colibri.modelPath" . }}/.colibri-model-revision"
+              until [ "$(cat "$marker" 2>/dev/null)" = "$want" ]; do
+                echo "waiting for $want"; sleep 15
+              done
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              memory: 64Mi
+          volumeMounts:
+            - name: models
+              mountPath: /model
+              readOnly: true
+      {{- end }}
+      containers:
+        - name: colibri
+          image: {{ include "colibri.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - serve
+            - --host=0.0.0.0
+            - --model-id={{ .Values.model.id }}
+            - --ram={{ .Values.server.ramGb }}
+            {{- range .Values.server.allowedHosts }}
+            - --allowed-host={{ . }}
+            {{- end }}
+            {{- range .Values.server.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
+          env:
+            - name: COLI_MODEL
+              value: {{ include "colibri.modelPath" . }}
+            - name: COLI_ALLOW_INSECURE_BIND
+              value: "1"
+            {{- if .Values.apiKey.enabled }}
+            - name: COLI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.apiKey.existingSecret }}
+                  key: {{ .Values.apiKey.secretKey }}
+            {{- end }}
+            {{- with .Values.server.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.server.port }}
+              protocol: TCP
+          {{- with .Values.startupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          volumeMounts:
+            # Read-write: the learning expert cache writes .coli_usage here.
+            - name: models
+              mountPath: /model
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: {{ include "colibri.claimName" . }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

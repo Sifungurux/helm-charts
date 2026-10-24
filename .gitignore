@@ -1,0 +1,5 @@
+dist/
+*.tgz
+.DS_Store
+deploy/flux/colibri/api-key.sops.yaml
+!deploy/flux/colibri/api-key.sops.yaml.example

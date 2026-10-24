@@ -1,0 +1,18 @@
+apiVersion: v2
+name: colibri
+description: colibri inference server (MoE models with experts streamed from disk), OpenAI- and Anthropic-compatible API
+type: application
+version: 0.1.0
+appVersion: "2.0.0"
+home: https://github.com/JustVugg/colibri
+sources:
+  - https://github.com/JustVugg/colibri
+  - https://github.com/Sifungurux/helm-charts
+maintainers:
+  - name: Jonas Kirk Pedersen
+    email: jkp@nordkeel.dk
+keywords:
+  - llm
+  - inference
+  - moe
+  - colibri

@@ -1,0 +1,76 @@
+{{- if .Values.modelDownload.enabled }}
+# A regular release resource, not a hook: with Flux's default wait, Helm waits
+# for the Deployment before running post-install hooks, and the Deployment can
+# never become ready without the model. Job specs are immutable, so the name
+# carries a hash of the spec inputs: a new model revision is a new Job, and the
+# old one is pruned with the previous release. hf download skips files already
+# on disk, so re-runs are cheap.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "colibri.fullname" . }}-dl-{{ include "colibri.downloadHash" . }}
+  labels:
+    {{- include "colibri.labels" . | nindent 4 }}
+    app.kubernetes.io/component: model-download
+spec:
+  backoffLimit: 3
+  activeDeadlineSeconds: {{ .Values.modelDownload.activeDeadlineSeconds }}
+  template:
+    metadata:
+      labels:
+        {{- include "colibri.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: model-download
+    spec:
+      restartPolicy: OnFailure
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: download
+          image: "{{ .Values.modelDownload.image.repository }}:{{ .Values.modelDownload.image.tag }}"
+          env:
+            - name: REPO
+              value: {{ .Values.model.repo | quote }}
+            - name: REVISION
+              value: {{ .Values.model.revision | quote }}
+            - name: TARGET
+              value: {{ include "colibri.modelPath" . }}
+            - name: HOME
+              value: /tmp
+            {{- with .Values.modelDownload.hfTokenSecret }}
+            - name: HF_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ . }}
+                  key: token
+            {{- end }}
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              pip install --no-cache-dir --user -q "huggingface_hub[cli]"
+              rm -f "$TARGET/.colibri-model-revision"
+              ~/.local/bin/hf download "$REPO" --revision "$REVISION" --local-dir "$TARGET"
+              # Marker the server's init container waits for; written last.
+              echo "$REPO@$REVISION" > "$TARGET/.colibri-model-revision.tmp"
+              mv "$TARGET/.colibri-model-revision.tmp" "$TARGET/.colibri-model-revision"
+              du -sh "$TARGET"
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          resources:
+            {{- toYaml .Values.modelDownload.resources | nindent 12 }}
+          volumeMounts:
+            - name: models
+              mountPath: /model
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: {{ include "colibri.claimName" . }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

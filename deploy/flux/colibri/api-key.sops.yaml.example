@@ -1,0 +1,14 @@
+# Encrypt before committing:
+#   cp api-key.sops.yaml.example api-key.sops.yaml
+#   sed -i "s/CHANGE_ME/$(openssl rand -hex 24)/" api-key.sops.yaml
+#   sops --encrypt --in-place api-key.sops.yaml
+# then add it to kustomization.yaml. Your Flux Kustomization for this
+# directory needs `decryption: { provider: sops, secretRef: ... }`.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: colibri-api-key
+  namespace: ai
+type: Opaque
+stringData:
+  api-key: CHANGE_ME

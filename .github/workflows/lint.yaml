@@ -1,0 +1,55 @@
+name: lint
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  chart:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        k8s: ["1.32.0", "1.33.0"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.19.0
+
+      - name: helm lint
+        run: |
+          for chart in charts/*/; do
+            helm lint --strict "$chart" -f "$chart/ci/default-values.yaml"
+          done
+
+      - name: Install kubeconform
+        run: |
+          curl -fsSL https://github.com/yannh/kubeconform/releases/download/v0.7.0/kubeconform-linux-amd64.tar.gz \
+            | tar xz -C /usr/local/bin kubeconform
+
+      - name: Render and validate
+        run: |
+          for chart in charts/*/; do
+            helm template ci "$chart" -n ai -f "$chart/ci/default-values.yaml" \
+              | kubeconform -strict -summary -kubernetes-version "${{ matrix.k8s }}"
+          done
+
+      - name: Version bumped
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch --depth 1 origin "${{ github.base_ref }}"
+          for chart in charts/*/; do
+            if ! git diff --quiet "origin/${{ github.base_ref }}" -- "$chart"; then
+              base=$(git show "origin/${{ github.base_ref }}:${chart}Chart.yaml" 2>/dev/null | yq '.version' || echo none)
+              head=$(yq '.version' "${chart}Chart.yaml")
+              if [ "$base" = "$head" ]; then
+                echo "::error file=${chart}Chart.yaml::$chart changed but version is still $head"
+                exit 1
+              fi
+            fi
+          done
