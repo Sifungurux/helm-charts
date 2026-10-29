@@ -1,0 +1,15 @@
+# One replica on the node that runs the pod: the model is re-downloadable, and
+# colibri streams experts from disk, so network replicas only add latency.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: longhorn-local
+provisioner: driver.longhorn.io
+allowVolumeExpansion: true
+reclaimPolicy: Delete
+# Bind on first consumer so the replica lands on the pinned node.
+volumeBindingMode: WaitForFirstConsumer
+parameters:
+  numberOfReplicas: "1"
+  dataLocality: strict-local
+  staleReplicaTimeout: "30"

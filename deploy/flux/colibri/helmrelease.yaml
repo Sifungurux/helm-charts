@@ -31,7 +31,7 @@ spec:
     server:
       ramGb: 20
     persistence:
-      storageClass: local-path
+      storageClass: longhorn-local
       size: 40Gi
     nodeSelector:
       homelab/llm: "true"

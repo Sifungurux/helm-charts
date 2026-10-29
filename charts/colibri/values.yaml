@@ -41,8 +41,9 @@ apiKey:
 persistence:
   # -- Use an existing PVC instead of creating one.
   existingClaim: ""
-  # -- Must be node-local NVMe for usable speed (experts stream from disk).
-  storageClass: local-path
+  # -- Empty = cluster default. Experts stream from disk, so use a node-local
+  # class (e.g. Longhorn with 1 replica and dataLocality strict-local).
+  storageClass: ""
   size: 40Gi
   accessModes:
     - ReadWriteOnce
