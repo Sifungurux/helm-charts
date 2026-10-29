@@ -25,10 +25,11 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{- define "colibri.image" -}}
+{{- $repo := required "image.repository is required: colibri publishes no image" .Values.image.repository }}
 {{- if .Values.image.digest }}
-{{- printf "%s@%s" .Values.image.repository .Values.image.digest }}
+{{- printf "%s@%s" $repo .Values.image.digest }}
 {{- else }}
-{{- printf "%s:%s" .Values.image.repository (default .Chart.AppVersion .Values.image.tag) }}
+{{- printf "%s:%s" $repo (default .Chart.AppVersion .Values.image.tag) }}
 {{- end }}
 {{- end }}
 

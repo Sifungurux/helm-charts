@@ -1,6 +1,6 @@
 # Used by CI to render the chart with an explicit image and pinned revision.
 image:
-  repository: ghcr.io/sifungurux/colibri
+  repository: registry.example.com/colibri
   digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
 model:
   revision: 0123456789abcdef0123456789abcdef01234567

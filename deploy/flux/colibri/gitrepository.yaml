@@ -1,0 +1,15 @@
+# Chart source: this repo on GitHub, built by Flux straight from Git.
+# Upgrades roll out when the chart's version in Chart.yaml changes on main.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: colibri
+  namespace: flux-system
+spec:
+  interval: 30m
+  url: https://github.com/Sifungurux/helm-charts
+  ref:
+    branch: main
+  ignore: |
+    /*
+    !/charts/colibri/

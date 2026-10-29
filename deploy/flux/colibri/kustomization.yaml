@@ -5,6 +5,6 @@ kind: Kustomization
 resources:
   - namespace.yaml
   - storageclass.yaml
-  - ocirepository.yaml
+  - gitrepository.yaml
   - helmrelease.yaml
   # - api-key.sops.yaml
