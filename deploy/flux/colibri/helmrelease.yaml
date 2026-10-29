@@ -5,12 +5,9 @@ metadata:
   namespace: flux-system
 spec:
   interval: 30m
-  chart:
-    spec:
-      chart: ./charts/colibri
-      sourceRef:
-        kind: GitRepository
-        name: colibri
+  chartRef:
+    kind: OCIRepository
+    name: colibri
   targetNamespace: ai
   releaseName: colibri
   # First install downloads ~19 GB before the server can become ready.
@@ -25,8 +22,8 @@ spec:
       strategy: rollback
   values:
     image:
-      repository: REPLACE_WITH_REGISTRY/colibri
-      digest: sha256:REPLACE_WITH_IMAGE_DIGEST
+      repository: ghcr.io/sifungurux/colibri
+      digest: sha256:REPLACE_WITH_DIGEST_FROM_IMAGE_WORKFLOW
     model:
       id: qwen3-coder-30b
       repo: Justvugg/Qwen3-Coder-30B-A3B-colibri-int4

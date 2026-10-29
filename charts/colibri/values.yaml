@@ -1,7 +1,7 @@
-# -- colibri has no published image. Build docker/Dockerfile.slim at the upstream
-# commit in images/colibri/COLIBRI_REF, push it to your registry, and set this.
+# -- colibri has no published image. Build docker/Dockerfile.slim from a pinned
+# upstream commit (see .github/workflows/image.yaml) and point this at it.
 image:
-  repository: ""
+  repository: ghcr.io/sifungurux/colibri
   # -- Defaults to the chart appVersion when empty.
   tag: ""
   # -- If set, the image is pulled by digest and tag is ignored. Recommended.
