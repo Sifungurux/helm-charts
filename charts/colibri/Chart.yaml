@@ -2,7 +2,7 @@ apiVersion: v2
 name: colibri
 description: colibri inference server (MoE models with experts streamed from disk), OpenAI- and Anthropic-compatible API
 type: application
-version: 0.1.3
+version: 0.1.4
 appVersion: "2.0.0"
 home: https://github.com/JustVugg/colibri
 sources:
