@@ -20,7 +20,7 @@ jobs:
   colibri:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Resolve upstream ref
         id: ref
@@ -34,7 +34,7 @@ jobs:
           echo "image=ghcr.io/$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')/colibri" >> "$GITHUB_OUTPUT"
 
       - name: Check out colibri at the pinned commit
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: JustVugg/colibri
           ref: ${{ steps.ref.outputs.sha }}
