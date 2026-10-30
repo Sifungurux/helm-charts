@@ -17,16 +17,16 @@ model:
   id: qwen3-coder-30b
   # -- Hugging Face repository holding the colibri container.
   repo: Justvugg/Qwen3-Coder-30B-A3B-colibri-int4
-  # -- Pin to a commit SHA for reproducible, verifiable downloads.
-  revision: main
+  # -- Hugging Face commit to download. Needs colibri >= 2.0.0 (catalog prebuilt_since).
+  revision: d839110a17d31b4e6fa9f3d973b751f779b6b9c6
 
 server:
-  # -- Port coli serve listens on (5000 in the slim image).
+  # -- Port coli serve listens on (passed as --port; coli's own default is 8000).
   port: 5000
   # -- GB of RAM colibri may use for weights and expert cache (--ram).
   ramGb: 20
-  # -- Accepted Host headers. "*" disables the DNS-rebinding guard; rely on
-  # the NetworkPolicy instead. Each entry becomes one --allowed-host flag.
+  # -- Accepted Host headers, one --allowed-host flag each. "*" disables the
+  # DNS-rebinding guard; rely on the NetworkPolicy, or list the Service DNS names.
   allowedHosts:
     - "*"
   extraArgs: []

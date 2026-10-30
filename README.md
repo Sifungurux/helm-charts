@@ -69,12 +69,6 @@ cosign verify ghcr.io/sifungurux/charts/colibri:0.1.0 \
 - **Chart change**: bump `version`; Flux picks it up through the OCIRepository
   semver range (`>=0.1.0 <1.0.0`).
 
-## Open points to confirm against `coli serve --help`
-
-- The serve port (5000, per the upstream slim-image docs).
-- Whether `--allowed-host` can repeat. The chart passes one flag per entry in
-  `server.allowedHosts`; if repeating works, swap `"*"` for the Service DNS names.
-
 ## Chart values
 
 See [`charts/colibri/values.yaml`](charts/colibri/values.yaml); every key is commented.
