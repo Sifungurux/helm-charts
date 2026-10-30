@@ -1,5 +1,5 @@
-# -- colibri has no published image. Build docker/Dockerfile.slim from a pinned
-# upstream commit (see .github/workflows/image.yaml) and point this at it.
+# -- colibri has no published image. images/colibri/Dockerfile in this repo builds
+# one (GLM + qwen36 engines; upstream's Dockerfile.slim has GLM only).
 image:
   repository: ghcr.io/sifungurux/colibri
   # -- Defaults to the chart appVersion when empty.

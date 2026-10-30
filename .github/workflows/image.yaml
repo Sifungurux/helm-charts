@@ -1,5 +1,5 @@
-# colibri publishes no container image, so this builds upstream's
-# docker/Dockerfile.slim at the commit pinned in images/colibri/COLIBRI_REF,
+# colibri publishes no container image, so this builds images/colibri/Dockerfile
+# (GLM + qwen36 engines) against upstream at the commit in images/colibri/COLIBRI_REF,
 # pushes it to GHCR and signs it, with an SBOM and build provenance attached.
 # Bumping the image = a PR that changes COLIBRI_REF.
 name: image
@@ -30,7 +30,8 @@ jobs:
             echo "::error::COLIBRI_REF must be a full 40-char commit SHA"; exit 1
           fi
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
-          echo "short=${sha:0:12}" >> "$GITHUB_OUTPUT"
+          # Upstream commit + this repo's commit: a Dockerfile change gets a new tag.
+          echo "short=${sha:0:12}-${GITHUB_SHA:0:7}" >> "$GITHUB_OUTPUT"
           echo "image=ghcr.io/$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')/colibri" >> "$GITHUB_OUTPUT"
 
       - name: Check out colibri at the pinned commit
@@ -54,8 +55,8 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: upstream
-          file: upstream/docker/Dockerfile.slim
-          platforms: linux/amd64   # Dockerfile.slim targets x86-64-v3 (needs AVX2)
+          file: images/colibri/Dockerfile
+          platforms: linux/amd64   # built for x86-64-v3 (needs AVX2)
           push: true
           sbom: true
           provenance: mode=max
