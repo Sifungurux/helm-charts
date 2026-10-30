@@ -27,7 +27,7 @@ spec:
     model:
       id: qwen3-coder-30b
       repo: Justvugg/Qwen3-Coder-30B-A3B-colibri-int4
-      revision: REPLACE_WITH_HF_COMMIT_SHA
+      revision: d839110a17d31b4e6fa9f3d973b751f779b6b9c6
     server:
       ramGb: 20
     persistence:
