@@ -92,16 +92,17 @@ securityContext:
   capabilities:
     drop: ["ALL"]
 
+# /health is the only endpoint that answers without the API key; /v1/* return 401.
 startupProbe:
   httpGet:
-    path: /v1/models
+    path: /health
     port: http
   periodSeconds: 10
   failureThreshold: 30
 
 readinessProbe:
   httpGet:
-    path: /v1/models
+    path: /health
     port: http
   periodSeconds: 15
   timeoutSeconds: 5
