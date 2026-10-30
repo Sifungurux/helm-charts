@@ -20,27 +20,21 @@ homelab repo:  OCIRepository (verify: cosign, this repo's release workflow) â”€â
 Charts are only published when `version` in `Chart.yaml` changes, so every
 chart change needs a version bump (CI enforces it).
 
-## First-time setup
+## Deploying
 
-1. **Create the repo** `Sifungurux/helm-charts` and push this tree to `main`.
-2. **Pin colibri**: put a full upstream commit SHA in `images/colibri/COLIBRI_REF`
-   and push. The `image` workflow builds, pushes and signs
-   `ghcr.io/sifungurux/colibri:<short-sha>` and prints its digest in the run summary.
-3. **Publish the chart**: the `release` workflow runs on the same push
-   (or trigger it by hand) and publishes `colibri` 0.1.0.
-4. **Make both GHCR packages public**, or create a pull secret and uncomment
-   `secretRef` in `deploy/flux/colibri/ocirepository.yaml`. New GHCR packages start private.
-5. **Wire up Flux**: copy `deploy/flux/colibri/` into `Sifungurux/homelab`
-   (e.g. `apps/colibri/`), fill in the image digest and the Hugging Face commit
-   SHA in `helmrelease.yaml`, add the SOPS-encrypted API key, and reference it
-   from the cluster (`deploy/flux/flux-kustomization.yaml` if nothing already
-   reconciles `apps/`).
-6. **Prepare the node**:
-   ```bash
-   grep -c avx2 /proc/cpuinfo        # on the worker; 0 = Dockerfile.slim's x86-64-v3 build won't run
-   kubectl label node <worker> homelab/llm=true
-   kubectl label ns <open-webui-ns> homelab/llm-client=true
-   ```
+Flux wiring lives in `Sifungurux/homelab`, not here. Each chart gets
+`clusters/rack/sources/<chart>.yaml` (OCIRepository pinned by tag and digest,
+cosign-verified against this repo's release workflow) and
+`clusters/rack/releases/<chart>.yaml` (HelmRelease), listed in
+`clusters/rack/kustomization.yaml`. Secrets are created with kubectl, never
+committed. colibri's files there are the reference.
+
+colibri also needs a labelled node, and its clients a labelled namespace:
+
+```bash
+kubectl label node <worker> homelab/llm=true
+kubectl label ns <client-ns> homelab/llm-client=true
+```
 
 ## Verify
 
@@ -66,8 +60,8 @@ cosign verify ghcr.io/sifungurux/charts/colibri:0.1.0 \
 - **New model revision or model**: change `model.*` in the HelmRelease. The
   download Job's name is a hash of its spec, so a new revision gets a new Job,
   and the server's init container waits for it before starting.
-- **Chart change**: bump `version`; Flux picks it up through the OCIRepository
-  semver range (`>=0.1.0 <1.0.0`).
+- **Chart change**: bump `version`. Renovate then bumps the pinned tag and
+  digest in the homelab repo.
 
 ## Chart values
 
