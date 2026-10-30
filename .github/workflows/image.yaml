@@ -70,7 +70,7 @@ jobs:
       - name: Sign
         run: cosign sign --yes "${{ steps.ref.outputs.image }}@${{ steps.build.outputs.digest }}"
 
-      - uses: actions/attest-build-provenance@v2
+      - uses: actions/attest-build-provenance@v4
         with:
           subject-name: ${{ steps.ref.outputs.image }}
           subject-digest: ${{ steps.build.outputs.digest }}
