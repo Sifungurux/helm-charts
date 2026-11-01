@@ -53,6 +53,62 @@ cosign verify ghcr.io/sifungurux/charts/colibri:0.1.0 \
   --certificate-identity-regexp '^https://github.com/Sifungurux/helm-charts/\.github/workflows/release\.yaml@refs/heads/main$'
 ```
 
+## Testing colibri
+
+The Service is ClusterIP-only and its NetworkPolicy admits only labelled
+namespaces, so test from your machine through a port-forward (it reaches the
+pod directly). Leave this running in one terminal:
+
+```bash
+kubectl -n ai port-forward svc/colibri 5000:5000
+```
+
+In a second terminal, read the API key from its Secret:
+
+```bash
+KEY=$(kubectl -n ai get secret colibri-api-key -o jsonpath='{.data.api-key}' | base64 -d)
+
+curl -s localhost:5000/health                                     # no key needed: {"status":"ok"}
+curl -s localhost:5000/v1/models -H "Authorization: Bearer $KEY"  # 401 without the key
+```
+
+A chat completion (OpenAI format; `x-api-key: $KEY` works too):
+
+```bash
+curl -s localhost:5000/v1/chat/completions \
+  -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
+  -d '{"model":"qwen3-coder-30b","max_tokens":200,
+       "messages":[{"role":"user","content":"Write a bash one-liner that counts lines in all .py files"}]}'
+```
+
+Add `"stream":true` to watch tokens arrive instead of waiting for the whole answer.
+
+### Measuring speed
+
+Time a request and divide the generated tokens by the seconds:
+
+```bash
+time curl -s localhost:5000/v1/chat/completions \
+  -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
+  -d '{"model":"qwen3-coder-30b","max_tokens":200,
+       "messages":[{"role":"user","content":"Explain a Kubernetes readiness probe in 150 words."}]}' \
+  | jq .usage        # completion_tokens / real seconds = tokens per second
+```
+
+The engine logs the same per request:
+
+```bash
+kubectl -n ai logs deploy/colibri -c colibri | grep -v /health | tail
+```
+
+- `cache auto-sized: N slots/layer of 128 experts` (at startup): the expert
+  cache. 128 means every expert fits in RAM. `cache=8/layer` in the banner
+  means `--cap` was not applied and every token re-reads its experts.
+- `[qwen36 spec gate] turn N: T(1) 4293.1 ms`: time per forward pass, roughly
+  per token. Tokens per second is about 1000 / that number.
+- The first request after a restart is slower while the cache fills; measure
+  the second.
+
 ## Upgrading
 
 - **New colibri build**: change `images/colibri/COLIBRI_REF`, merge, then
