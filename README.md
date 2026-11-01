@@ -109,11 +109,26 @@ kubectl -n ai logs deploy/colibri -c colibri | grep -v /health | tail
 - The first request after a restart is slower while the cache fills; measure
   the second.
 
+### Reference results
+
+The readiness-probe prompt above, `max_tokens` 256, on w1 (i7-7700, 32 GB),
+chart 0.1.5, measured 2026-11-01:
+
+| Request | Tokens | Time | Speed | `T(1)` |
+| --- | --- | --- | --- | --- |
+| First after restart | 160 | 69 s | 2.3 tok/s | 118 ms |
+| Second | 170 | 25 s | 6.8 tok/s | 107 ms |
+| Before 0.1.5 (`cache=8/layer`) | 173 | 835 s | 0.2 tok/s | 4336 ms |
+
+Pure decode is about 9 tok/s (1000 / `T(1)`); the rest is prompt processing
+and request overhead. RSS is about 18 GB once every expert is loaded.
+
 ## Upgrading
 
 - **New colibri build**: change `images/colibri/COLIBRI_REF`, merge, then
-  update `image.digest` in the HelmRelease.
-- **New model revision or model**: change `model.*` in the HelmRelease. The
+  set `image.digest` in `charts/colibri/values.yaml` and bump the chart.
+- **New model revision or model**: change `model.*` in `charts/colibri/values.yaml`
+  and bump the chart (or override it in the HelmRelease). The
   download Job's name is a hash of its spec, so a new revision gets a new Job,
   and the server's init container waits for it before starting.
 - **Chart change**: bump `version`. Renovate then bumps the pinned tag and

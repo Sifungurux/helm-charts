@@ -2,10 +2,11 @@
 # one (GLM + qwen36 engines; upstream's Dockerfile.slim has GLM only).
 image:
   repository: ghcr.io/sifungurux/colibri
-  # -- Defaults to the chart appVersion when empty.
+  # -- Used only when digest is empty; empty = the chart appVersion.
   tag: ""
-  # -- If set, the image is pulled by digest and tag is ignored. Recommended.
-  digest: ""
+  # -- Pulled by digest when set. Tested build: tag bf2442915d6e-9c5d1b8
+  # (colibri v2.0.0 + qwen36 engine, from images/colibri/Dockerfile).
+  digest: sha256:173819c1b1f53085d972b99c0afce6b8b54cb3eedd5f0f6fb8538ba0f6c8ac03
   pullPolicy: IfNotPresent
 
 imagePullSecrets: []
@@ -46,9 +47,9 @@ apiKey:
 persistence:
   # -- Use an existing PVC instead of creating one.
   existingClaim: ""
-  # -- Empty = cluster default. Experts stream from disk, so use a node-local
-  # class (e.g. Longhorn with 1 replica and dataLocality strict-local).
-  storageClass: ""
+  # -- Node-local class: Longhorn, 1 replica, dataLocality strict-local
+  # (defined in the homelab repo). "" = cluster default.
+  storageClass: longhorn-local
   size: 40Gi
   accessModes:
     - ReadWriteOnce
