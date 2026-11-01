@@ -70,6 +70,7 @@ spec:
             - --port={{ .Values.server.port }}
             - --model-id={{ .Values.model.id }}
             - --ram={{ .Values.server.ramGb }}
+            - --cap={{ .Values.server.cap }}
             {{- range .Values.server.allowedHosts }}
             - --allowed-host={{ . }}
             {{- end }}
@@ -79,6 +80,8 @@ spec:
           env:
             - name: COLI_MODEL
               value: {{ include "colibri.modelPath" . }}
+            - name: RAM_GB
+              value: {{ .Values.server.ramGb | quote }}
             - name: COLI_ALLOW_INSECURE_BIND
               value: "1"
             {{- if .Values.apiKey.enabled }}

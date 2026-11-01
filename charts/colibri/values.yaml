@@ -23,8 +23,13 @@ model:
 server:
   # -- Port coli serve listens on (passed as --port; coli's own default is 8000).
   port: 5000
-  # -- GB of RAM colibri may use for weights and expert cache (--ram).
+  # -- GB of RAM colibri may use for weights and expert cache (--ram, and RAM_GB
+  # for engines like qwen36 that only read the env var).
   ramGb: 20
+  # -- Expert cache slots per layer (--cap). 0 = the engine sizes it from ramGb.
+  # Unset, coli gives qwen36 8 slots/layer: each token re-reads its experts
+  # (~0.2 tok/s on an i7-7700). 20 GB holds all 128 experts/layer of the 30B.
+  cap: 0
   # -- Accepted Host headers, one --allowed-host flag each. "*" disables the
   # DNS-rebinding guard; rely on the NetworkPolicy, or list the Service DNS names.
   allowedHosts:
