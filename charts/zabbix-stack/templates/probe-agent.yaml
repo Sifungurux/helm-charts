@@ -1,0 +1,90 @@
+{{- if .Values.probeAgent.enabled }}
+# Agent the server polls (passive) for checks that are not tied to a node:
+# PostgreSQL via the agent 2 plugin, and website certificate expiry.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "zs.prefix" . }}-probe-agent
+  labels:
+    {{- include "zs.commonLabels" . | nindent 4 }}
+    {{- include "zs.probe.selectorLabels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "zs.probe.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "zs.commonLabels" . | nindent 8 }}
+        {{- include "zs.probe.selectorLabels" . | nindent 8 }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1997
+        runAsGroup: 1995
+        fsGroup: 1995
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: agent
+          image: {{ include "zs.agentImage" . | quote }}
+          imagePullPolicy: {{ .Values.probeAgent.image.pullPolicy }}
+          env:
+            - name: ZBX_HOSTNAME
+              value: {{ include "zs.prefix" . }}-probe-agent
+            # Only the Zabbix server can reach this pod (NetworkPolicy below).
+            - name: ZBX_PASSIVE_ALLOW
+              value: "true"
+            - name: ZBX_PASSIVESERVERS
+              value: "0.0.0.0/0"
+            - name: ZBX_ACTIVE_ALLOW
+              value: "false"
+            - name: ZBX_TIMEOUT
+              value: "10"
+          ports:
+            - name: zabbix-agent
+              containerPort: 10050
+              protocol: TCP
+          startupProbe:
+            tcpSocket: { port: zabbix-agent }
+            periodSeconds: 5
+            failureThreshold: 12
+          livenessProbe:
+            tcpSocket: { port: zabbix-agent }
+            periodSeconds: 20
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          {{- with .Values.probeAgent.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- with .Values.probeAgent.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.probeAgent.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "zs.prefix" . }}-probe-agent
+  labels:
+    {{- include "zs.commonLabels" . | nindent 4 }}
+    {{- include "zs.probe.selectorLabels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "zs.probe.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: zabbix-agent
+      port: 10050
+      targetPort: zabbix-agent
+      protocol: TCP
+{{- end }}

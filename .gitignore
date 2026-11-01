@@ -1,5 +1,7 @@
 dist/
 *.tgz
 .DS_Store
-deploy/flux/colibri/api-key.sops.yaml
-!deploy/flux/colibri/api-key.sops.yaml.example
+
+# Helm dependency downloads and local archives
+charts/*/charts/
+/*.tar.gz

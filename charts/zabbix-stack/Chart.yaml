@@ -1,0 +1,34 @@
+apiVersion: v2
+name: zabbix-stack
+description: >-
+  Umbrella chart for infrastructure monitoring with Zabbix: server, frontend and
+  PostgreSQL from the zabbix-community chart, a node agent DaemonSet,
+  kube-state-metrics, a probe agent for databases and certificates, and a
+  configuration Job that sets up hosts, templates and autoregistration through
+  the Zabbix API.
+type: application
+version: 0.1.0
+# Zabbix version deployed by default (zabbixImageTag in the subchart values).
+appVersion: "7.0.23"
+kubeVersion: ">=1.29.0-0"
+home: https://github.com/Sifungurux/helm-charts
+sources:
+  - https://github.com/Sifungurux/helm-charts/tree/main/charts/zabbix-stack
+  - https://github.com/zabbix-community/helm-zabbix
+maintainers:
+  - name: Jonas Kirk Pedersen
+    email: jkp@nordkeel.dk
+keywords:
+  - zabbix
+  - monitoring
+  - kubernetes
+dependencies:
+  # Server, web frontend, PostgreSQL and the node agent DaemonSet.
+  - name: zabbix
+    version: 7.1.0
+    repository: https://zabbix-community.github.io/helm-zabbix
+  # Cluster-state metrics consumed by "Kubernetes cluster state by HTTP".
+  - name: kube-state-metrics
+    version: 8.7.0
+    repository: https://prometheus-community.github.io/helm-charts
+    condition: kube-state-metrics.enabled

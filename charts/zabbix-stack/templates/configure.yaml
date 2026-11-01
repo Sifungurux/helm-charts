@@ -1,0 +1,88 @@
+{{- if .Values.configure.enabled }}
+{{- $state := include "zs.configureState" . }}
+{{- $script := .Files.Get "files/configure.py" }}
+{{- $hash := sha256sum (printf "%s\n%s\n%s" $state $script (include "zs.configureImage" .)) | trunc 10 }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "zs.prefix" . }}-configure-{{ $hash }}
+  labels:
+    {{- include "zs.labels" . | nindent 4 }}
+    app.kubernetes.io/component: configure
+data:
+  state.json: |
+    {{- $state | nindent 4 }}
+  configure.py: |
+    {{- $script | nindent 4 }}
+---
+# Named by a hash of its inputs: a config or script change creates a new Job
+# (Jobs are immutable) and Helm prunes the old one. Not a hook, so Flux's wait
+# on the release does not deadlock against it; the script waits for the API.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "zs.prefix" . }}-configure-{{ $hash }}
+  labels:
+    {{- include "zs.labels" . | nindent 4 }}
+    app.kubernetes.io/component: configure
+spec:
+  backoffLimit: {{ .Values.configure.backoffLimit }}
+  activeDeadlineSeconds: {{ .Values.configure.activeDeadlineSeconds }}
+  template:
+    metadata:
+      labels:
+        {{- include "zs.labels" . | nindent 8 }}
+        app.kubernetes.io/component: configure
+    spec:
+      restartPolicy: OnFailure
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: configure
+          image: {{ include "zs.configureImage" . | quote }}
+          imagePullPolicy: {{ .Values.configure.image.pullPolicy }}
+          command: ["python", "-I", "-u", "/config/configure.py", "/config/state.json"]
+          env:
+            - name: SECRETS_DIR
+              value: /secrets
+            - name: K8S_TOKEN_FILE
+              value: /k8s-token/token
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          {{- with .Values.configure.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: config
+              mountPath: /config
+              readOnly: true
+            - name: secrets
+              mountPath: /secrets
+              readOnly: true
+            {{- if .Values.configure.kubernetes.enabled }}
+            - name: k8s-token
+              mountPath: /k8s-token
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "zs.prefix" . }}-configure-{{ $hash }}
+        - name: secrets
+          secret:
+            secretName: {{ required "existingSecret is required" .Values.existingSecret }}
+        {{- if .Values.configure.kubernetes.enabled }}
+        - name: k8s-token
+          secret:
+            secretName: {{ include "zs.tokenSecretName" . }}
+        {{- end }}
+{{- end }}

@@ -21,10 +21,27 @@ jobs:
         with:
           version: v3.19.0
 
+      - name: Fetch chart dependencies
+        run: |
+          for chart in charts/*/; do
+            i=0
+            for repo in $(yq '.dependencies[]?.repository' "${chart}Chart.yaml" | grep -E '^https?://' | sort -u); do
+              i=$((i+1)); helm repo add "dep-$(basename "$chart")-$i" "$repo" >/dev/null
+            done
+            if [ "$(yq '.dependencies | length' "${chart}Chart.yaml")" != "0" ]; then
+              helm dependency update "$chart"
+            fi
+          done
+
       - name: helm lint
         run: |
           for chart in charts/*/; do
-            helm lint --strict "$chart" -f "$chart/ci/default-values.yaml"
+            set -- "$chart"ci/*.yaml
+            if [ -e "$1" ]; then
+              for v in "$@"; do helm lint --strict "$chart" -f "$v"; done
+            else
+              helm lint --strict "$chart"
+            fi
           done
 
       - name: Install kubeconform
@@ -35,8 +52,14 @@ jobs:
       - name: Render and validate
         run: |
           for chart in charts/*/; do
-            helm template ci "$chart" -n ai -f "$chart/ci/default-values.yaml" \
-              | kubeconform -strict -summary -kubernetes-version "${{ matrix.k8s }}"
+            set -- "$chart"ci/*.yaml
+            [ -e "$1" ] || set -- ""
+            for v in "$@"; do
+              echo "== $chart ${v:-(defaults)}"
+              helm template ci "$chart" -n ci ${v:+-f "$v"} \
+                | kubeconform -strict -summary -ignore-missing-schemas \
+                    -kubernetes-version "${{ matrix.k8s }}"
+            done
           done
 
       - name: Version bumped

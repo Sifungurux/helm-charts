@@ -1,0 +1,9 @@
+dependencies:
+- name: zabbix
+  repository: https://zabbix-community.github.io/helm-zabbix
+  version: 7.1.0
+- name: kube-state-metrics
+  repository: https://prometheus-community.github.io/helm-charts
+  version: 8.7.0
+digest: sha256:38a57e2ffbf972a8ef5144ffd96d4fe332654088241ee5595e57d99d4ec0fb46
+generated: "2026-11-01T21:26:38.988397+01:00"

@@ -46,6 +46,13 @@ jobs:
               echo "$name $version already published, skipping"
               continue
             fi
+            i=0
+            for dep in $(yq '.dependencies[]?.repository' "${chart}Chart.yaml" | grep -E '^https?://' | sort -u); do
+              i=$((i+1)); helm repo add "dep-$name-$i" "$dep" >/dev/null
+            done
+            if [ "$(yq '.dependencies | length' "${chart}Chart.yaml")" != "0" ]; then
+              helm dependency update "$chart"
+            fi
             helm package "$chart" -d dist
             out=$(helm push "dist/$name-$version.tgz" "oci://$repo" 2>&1)
             echo "$out"

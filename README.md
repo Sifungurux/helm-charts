@@ -6,6 +6,7 @@ Helm charts for the homelab rack, published as signed OCI artifacts to
 | Chart | What it runs |
 | --- | --- |
 | [`colibri`](charts/colibri) | [colibri](https://github.com/JustVugg/colibri) LLM inference server (Qwen3-Coder-30B by default), OpenAI- and Anthropic-compatible API |
+| [`zabbix-stack`](charts/zabbix-stack) | Zabbix 7.0 LTS umbrella chart: server, frontend and PostgreSQL (zabbix-community), node agents, kube-state-metrics, a probe agent and a configure Job that sets up hosts and templates through the API |
 
 ## How it flows
 
@@ -18,7 +19,9 @@ homelab repo:  OCIRepository (verify: cosign, this repo's release workflow) â”€â
 ```
 
 Charts are only published when `version` in `Chart.yaml` changes, so every
-chart change needs a version bump (CI enforces it).
+chart change needs a version bump (CI enforces it). Charts with dependencies
+(`zabbix-stack`) get `helm dependency update` in CI; run it locally before
+`helm lint`, and commit the resulting `Chart.lock`.
 
 ## Deploying
 
