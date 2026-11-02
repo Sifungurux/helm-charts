@@ -248,7 +248,11 @@ configure:
   # --- Databases: PostgreSQL via the probe agent's plugin --------------------
   databases:
     group: Infrastructure/Databases
-    # Monitor the Zabbix database itself (credentials from existingSecret).
+    # Monitor the Zabbix database itself with the db-user/db-password owner
+    # credentials, stored as host macros. A Zabbix user who can edit hosts in
+    # this group can repoint {$PG.CONNSTRING.AGENT2} at their own server and
+    # receive that password: keep the group writable by Super admins only, or
+    # set false and list the database under instances with a pg_monitor role.
     selfMonitor: true
     # - name: pg-apps
     #   connString: tcp://pg-apps.databases.svc.cluster.local:5432

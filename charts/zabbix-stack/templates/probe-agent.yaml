@@ -1,4 +1,23 @@
 {{- if .Values.probeAgent.enabled }}
+{{- if not .Values.networkPolicy.enabled }}
+{{- fail "probeAgent needs networkPolicy.enabled: it accepts any caller, and only the NetworkPolicy limits it to the Zabbix server" }}
+{{- end }}
+# Only the keys its checks use. The image's ZBX_ALLOWKEY/ZBX_DENYKEY can't express
+# this: it writes DenyKey lines first and glob-expands "*". Patterns without [*]
+# match only keys without parameters.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "zs.prefix" . }}-probe-agent
+  labels:
+    {{- include "zs.commonLabels" . | nindent 4 }}
+data:
+  zz-allowed-keys.conf: |
+    AllowKey=agent.*
+    AllowKey=pgsql.*[*]
+    AllowKey=web.certificate.get[*]
+    DenyKey=*
+---
 # Agent the server polls (passive) for checks that are not tied to a node:
 # PostgreSQL via the agent 2 plugin, and website certificate expiry.
 apiVersion: apps/v1
@@ -34,7 +53,8 @@ spec:
           env:
             - name: ZBX_HOSTNAME
               value: {{ include "zs.prefix" . }}-probe-agent
-            # Only the Zabbix server can reach this pod (NetworkPolicy below).
+            # Any source: the server's pod IP changes. The NetworkPolicy (required
+            # above) admits only the server; the key allowlist limits what it can ask.
             - name: ZBX_PASSIVE_ALLOW
               value: "true"
             - name: ZBX_PASSIVESERVERS
@@ -58,10 +78,19 @@ spec:
             allowPrivilegeEscalation: false
             capabilities:
               drop: ["ALL"]
+          volumeMounts:
+            - name: allowed-keys
+              mountPath: /etc/zabbix/zabbix_agent2.d/plugins.d/zz-allowed-keys.conf
+              subPath: zz-allowed-keys.conf
+              readOnly: true
           {{- with .Values.probeAgent.resources }}
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
+      volumes:
+        - name: allowed-keys
+          configMap:
+            name: {{ include "zs.prefix" . }}-probe-agent
       {{- with .Values.probeAgent.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
