@@ -1,0 +1,35 @@
+# Rendered in CI alongside the defaults: exercises every configure section.
+# Example data only (RFC 5737 addresses, example.com).
+zabbix:
+  zabbixAgent:
+    ZBX_PASSIVESERVERS: "127.0.0.1,192.0.2.0/26"
+configure:
+  network:
+    devices:
+      - name: gateway
+        visibleName: Gateway
+        address: 192.0.2.1
+        templates: ["Linux by SNMP"]
+      - name: switch-1
+        address: 192.0.2.10
+  rack:
+    devices:
+      - name: ups
+        address: 192.0.2.20
+        templates: ["APC UPS by SNMP"]
+      - name: pdu
+        address: 192.0.2.21
+        snmp: false
+  databases:
+    instances:
+      - name: pg-apps
+        connString: tcp://pg-apps.databases.svc.cluster.local:5432
+        user: zbx_monitor
+        passwordKey: pg-apps-password
+  services:
+    endpoints:
+      - name: internal-app
+        url: http://app.apps.svc.cluster.local:8080/health
+      - name: website
+        url: https://www.example.com/
+        certificate: true

@@ -1,0 +1,14 @@
+Zabbix {{ .Values.zabbix.zabbixImageTag }} is installing in namespace {{ .Release.Namespace }}.
+
+Frontend (until you add an ingress):
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "zs.subFullname" . }}-zabbix-web 8080:{{ dig "zabbixWeb" "service" "port" 80 .Values.zabbix }}
+  open http://localhost:8080  (user Admin, password = secret key "admin-password")
+
+{{- if .Values.configure.enabled }}
+
+Configuration job (hosts, templates, autoregistration):
+  kubectl -n {{ .Release.Namespace }} logs -l app.kubernetes.io/component=configure,app.kubernetes.io/instance={{ .Release.Name }} --tail=100
+{{- end }}
+
+Node agents register themselves within a few minutes:
+  Monitoring > Hosts, group {{ .Values.configure.nodes.group }}

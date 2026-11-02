@@ -1,0 +1,273 @@
+# Values for zabbix-stack.
+#
+# Naming assumptions: the chart is installed as release "zabbix" in namespace
+# "monitoring". Subchart values cannot be templated, so the service DNS names
+# below (zabbix-zabbix-server.monitoring.svc, ...) hard-code both. If you
+# change either, search this file for ".monitoring.svc" and "zabbix-zabbix-".
+
+# -- Existing Secret with all credentials. The chart never contains secrets;
+# create this Secret yourself (e.g. SOPS-encrypted in your GitOps repo). Required keys: db-user, db-password, db-name, admin-password.
+# Optional: snmp-community, plus any key named in databases[].passwordKey.
+existingSecret: zabbix-secrets
+
+# =============================================================================
+# Subchart: zabbix-community/zabbix (server, frontend, PostgreSQL, node agents)
+# Full reference: https://github.com/zabbix-community/helm-zabbix/blob/main/charts/zabbix/values.yaml
+# =============================================================================
+zabbix:
+  # 7.0 LTS. 8.0 LTS is still a release candidate; move once the subchart supports it.
+  zabbixImageTag: ubuntu-7.0.23
+
+  postgresAccess:
+    # Must match .Values.existingSecret (subchart values cannot reference it).
+    existingSecretName: zabbix-secrets
+    secretHostKey: ""
+    secretPortKey: ""
+    secretUserKey: db-user
+    secretPasswordKey: db-password
+    secretDBKey: db-name
+
+  postgresql:
+    enabled: true
+    image:
+      repository: postgres
+      tag: "16"
+      # For TimescaleDB use repository timescale/timescaledb, tag 2.17.2-pg16,
+      # and set ENABLE_TIMESCALEDB=true under zabbixServer.extraEnv.
+      # Decide before the first install; switching later needs a migration.
+    persistence:
+      enabled: true
+      storageSize: 20Gi
+      # storageClass: ""        # empty = cluster default StorageClass
+    extraRuntimeParameters:
+      max_connections: 100
+      shared_buffers: 512MB
+    resources:
+      requests: { cpu: 250m, memory: 768Mi }
+      limits: { memory: 2Gi }
+
+  zabbixServer:
+    # Only meaningful with zabbixServerHA (which needs an external database).
+    haNodesAutoClean:
+      enabled: false
+    resources:
+      requests: { cpu: 200m, memory: 512Mi }
+      limits: { memory: 1536Mi }
+    extraEnv:
+      - name: ZBX_STARTPINGERS
+        value: "3"
+      - name: ZBX_STARTPOLLERS
+        value: "10"
+      - name: ZBX_STARTSNMPPOLLERS
+        value: "2"
+      - name: ZBX_CACHESIZE
+        value: "128M"
+
+  zabbixWeb:
+    resources:
+      requests: { cpu: 100m, memory: 256Mi }
+      limits: { memory: 512Mi }
+    # Site settings belong in your release values, e.g.:
+    # extraEnv:
+    #   - { name: ZBX_SERVER_NAME, value: "My Zabbix" }
+    #   - { name: PHP_TZ, value: "Europe/Berlin" }
+    extraEnv: []
+
+  zabbixWebService:
+    # Only needed for scheduled PDF reports.
+    enabled: false
+
+  # Node agents: one zabbix-agent2 per node on the host network, active checks
+  # only. Nodes register themselves with the host metadata below, which must
+  # equal configure.nodes.metadata; the autoregistration action then links
+  # configure.nodes.templateName.
+  zabbixAgent:
+    enabled: true
+    runAsSidecar: false
+    runAsDaemonSet: true
+    hostNetwork: true
+    hostRootFsMount: true
+    ZBX_SERVER_HOST: zabbix-zabbix-server.monitoring.svc.cluster.local
+    ZBX_ACTIVE_ALLOW: true
+    ZBX_ACTIVESERVERS: zabbix-zabbix-server.monitoring.svc.cluster.local:10051
+    # Passive checks stay on for the kubelet's TCP probe, but only localhost
+    # may query: port 10050 on the node IP is not open to the LAN.
+    ZBX_PASSIVE_ALLOW: true
+    ZBX_PASSIVESERVERS: 127.0.0.1
+    ZBX_DEBUGLEVEL: 3
+    extraEnv:
+      - name: ZBX_METADATA
+        value: "zabbix-stack:node"
+    resources:
+      requests: { cpu: 20m, memory: 64Mi }
+      limits: { memory: 192Mi }
+    extraPodSpecs:
+      priorityClassName: system-node-critical
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+
+  zabbixProxy:
+    enabled: false
+
+  ingress:
+    enabled: false
+    # ingressClassName: nginx
+    # hosts:
+    #   - host: zabbix.example.com
+    #     paths: [{ path: /, pathType: Prefix }]
+
+  rbac:
+    create: true
+    # The cluster-state template also reads /livez and endpoint slices.
+    additionalRulesForClusterRole:
+      - nonResourceURLs: ["/livez"]
+        verbs: ["get"]
+      - apiGroups: ["discovery.k8s.io"]
+        resources: ["endpointslices"]
+        verbs: ["get", "list"]
+      - apiGroups: [""]
+        resources: ["persistentvolumes", "persistentvolumeclaims", "replicationcontrollers"]
+        verbs: ["get", "list"]
+      - apiGroups: ["apps"]
+        resources: ["replicasets"]
+        verbs: ["get", "list"]
+
+# =============================================================================
+# Subchart: prometheus-community/kube-state-metrics
+# Its Endpoints name must equal {$KUBE.STATE.ENDPOINT.NAME}: "<release>-kube-state-metrics".
+# =============================================================================
+kube-state-metrics:
+  enabled: true
+  resources:
+    requests: { cpu: 20m, memory: 64Mi }
+    limits: { memory: 256Mi }
+
+# =============================================================================
+# Probe agent: a zabbix-agent2 Deployment the server polls for checks that need
+# an agent but no particular node (PostgreSQL plugin, TLS certificate expiry).
+# =============================================================================
+probeAgent:
+  enabled: true
+  image:
+    repository: zabbix/zabbix-agent2
+    # Empty = zabbix.zabbixImageTag
+    tag: ""
+    pullPolicy: IfNotPresent
+  resources:
+    requests: { cpu: 20m, memory: 64Mi }
+    limits: { memory: 256Mi }
+  nodeSelector: {}
+  tolerations: []
+
+# Restrict PostgreSQL and the probe agent to the pods that need them.
+networkPolicy:
+  enabled: true
+
+# =============================================================================
+# Configure Job: makes Zabbix match the desired state below through the API.
+# Idempotent; reruns whenever this config or the script changes. It only
+# touches objects it manages (by name) and leaves everything else alone.
+# =============================================================================
+configure:
+  enabled: true
+  image:
+    repository: python
+    # Pin a digest in the HelmRelease once you have pulled it once.
+    tag: 3.13-alpine
+    digest: ""
+    pullPolicy: IfNotPresent
+  # Change Admin's default password to secret key "admin-password" on first run.
+  rotateAdminPassword: true
+  backoffLimit: 12
+  activeDeadlineSeconds: 1800
+  resources:
+    requests: { cpu: 20m, memory: 64Mi }
+    limits: { memory: 128Mi }
+
+  # Host groups created up front (more are created as referenced below).
+  hostGroups:
+    - Infrastructure/Nodes
+    - Infrastructure/Kubernetes
+    - Infrastructure/Network
+    - Infrastructure/Rack
+    - Infrastructure/Databases
+    - Infrastructure/Services
+
+  # --- Nodes -----------------------------------------------------------------
+  nodes:
+    # Must equal the agents' ZBX_METADATA (zabbix.zabbixAgent.extraEnv).
+    metadata: "zabbix-stack:node"
+    group: Infrastructure/Nodes
+    # Template the Job creates and links on autoregistration: "Linux by Zabbix
+    # agent active" + filesystem/interface filters for an agent in a container
+    # + a CPU temperature item with warn/high triggers.
+    templateName: "Linux node (container agent)"
+    templateGroup: Templates/zabbix-stack
+    actionName: "zabbix-stack: node autoregistration"
+    tempWarnCelsius: 75
+    tempHighCelsius: 85
+    thermalZonePath: /hostfs/sys/class/thermal/thermal_zone0/temp
+
+  # --- Kubernetes ------------------------------------------------------------
+  kubernetes:
+    enabled: true
+    group: Infrastructure/Kubernetes
+    apiUrl: https://kubernetes.default.svc.cluster.local:443
+    # Creates hosts "k8s-cluster-state" (which discovers API server,
+    # controller manager, scheduler and kubelet hosts) and "k8s-nodes".
+    extraMacros: {}
+
+  # Everything below is site-specific and empty by default. Set it in your
+  # release values; keep addresses/URLs you don't want public in an encrypted
+  # values Secret (Flux: HelmRelease.spec.valuesFrom).
+
+  # --- Network: SNMP devices --------------------------------------------------
+  network:
+    group: Infrastructure/Network
+    # Secret key (in existingSecret) holding the SNMP v2c community.
+    snmpCommunityKey: snmp-community
+    # - name: core-switch                 # technical host name: [A-Za-z0-9._-]
+    #   visibleName: Core switch
+    #   address: 192.0.2.10
+    #   templates: ["Network Generic Device by SNMP"]   # default for snmp: true
+    devices: []
+
+  # --- Rack: power and other gear --------------------------------------------
+  rack:
+    group: Infrastructure/Rack
+    # - name: ups
+    #   address: 192.0.2.20
+    #   templates: ["APC UPS by SNMP"]
+    # - name: pdu
+    #   address: 192.0.2.21
+    #   snmp: false                       # ICMP only ("ICMP Ping" by default)
+    devices: []
+
+  # --- Databases: PostgreSQL via the probe agent's plugin --------------------
+  databases:
+    group: Infrastructure/Databases
+    # Monitor the Zabbix database itself with the db-user/db-password owner
+    # credentials, stored as host macros. A Zabbix user who can edit hosts in
+    # this group can repoint {$PG.CONNSTRING.AGENT2} at their own server and
+    # receive that password: keep the group writable by Super admins only, or
+    # set false and list the database under instances with a pg_monitor role.
+    selfMonitor: true
+    # - name: pg-apps
+    #   connString: tcp://pg-apps.databases.svc.cluster.local:5432
+    #   database: postgres
+    #   user: zbx_monitor                 # role with pg_monitor
+    #   passwordKey: pg-apps-password     # key in existingSecret
+    instances: []
+
+  # --- Services: HTTP availability, optional TLS expiry ----------------------
+  services:
+    group: Infrastructure/Services
+    checkInterval: 1m
+    # - name: website
+    #   url: https://www.example.com/
+    #   certificate: true                 # adds "Website certificate by Zabbix agent 2"
+    #   expectStatus: 200
+    #   verifyTls: true
+    endpoints: []

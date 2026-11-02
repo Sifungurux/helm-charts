@@ -1,0 +1,14 @@
+{{- if .Values.configure.kubernetes.enabled }}
+# Long-lived token for the subchart's ServiceAccount, which its ClusterRole
+# binds to the read access the Kubernetes templates need. The configure Job
+# copies it into the {$KUBE.API.TOKEN} secret macro.
+apiVersion: v1
+kind: Secret
+type: kubernetes.io/service-account-token
+metadata:
+  name: {{ include "zs.tokenSecretName" . }}
+  labels:
+    {{- include "zs.labels" . | nindent 4 }}
+  annotations:
+    kubernetes.io/service-account.name: {{ default (include "zs.subFullname" .) (dig "serviceAccount" "name" "" .Values.zabbix) | quote }}
+{{- end }}
