@@ -64,8 +64,7 @@ reading site values from a Secret created with kubectl), listed in
 
 - **Release `zabbix`, namespace `monitoring`** are assumed by the agents'
   server address in `values.yaml` (subchart values cannot be templated). If you
-  use other names, override `zabbix.zabbixAgent.ZBX_SERVER_HOST` and
-  `ZBX_ACTIVESERVERS`.
+  use other names, override `zabbix.zabbixAgent.ZBX_SERVER_HOST`.
 - **Agent metadata** in `zabbix.zabbixAgent.extraEnv` (`ZBX_METADATA`) must
   equal `configure.nodes.metadata`.
 - **Privileged namespace** is required for the agent DaemonSet (hostNetwork,

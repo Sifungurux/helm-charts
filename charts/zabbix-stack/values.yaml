@@ -89,7 +89,9 @@ zabbix:
     hostRootFsMount: true
     ZBX_SERVER_HOST: zabbix-zabbix-server.monitoring.svc.cluster.local
     ZBX_ACTIVE_ALLOW: true
-    ZBX_ACTIVESERVERS: zabbix-zabbix-server.monitoring.svc.cluster.local:10051
+    # Empty: the image already puts ZBX_SERVER_HOST in ServerActive, and the
+    # agent refuses to start when an address appears twice.
+    ZBX_ACTIVESERVERS: ""
     # Passive checks stay on for the kubelet's TCP probe, but only localhost
     # may query: port 10050 on the node IP is not open to the LAN.
     ZBX_PASSIVE_ALLOW: true
@@ -203,7 +205,8 @@ configure:
     # Template the Job creates and links on autoregistration: "Linux by Zabbix
     # agent active" + filesystem/interface filters for an agent in a container
     # + a CPU temperature item with warn/high triggers.
-    templateName: "Linux node (container agent)"
+    # Also the technical name: letters, digits, space, . _ - only (no parentheses).
+    templateName: "Linux node by container agent"
     templateGroup: Templates/zabbix-stack
     actionName: "zabbix-stack: node autoregistration"
     tempWarnCelsius: 75
