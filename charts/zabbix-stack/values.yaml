@@ -291,6 +291,10 @@ triage:
   minSeverity: 2
   # Problems per run. At CPU prefill speeds ~30 problems is a 1-2 minute prompt.
   maxBatch: 30
+  # Facts about your site the model can't infer, appended to its instructions,
+  # so a reason can say why (e.g. which node is deliberately full and why).
+  # It reaches the LLM, not a secret: keep credentials out.
+  context: ""
   llm:
     # Chat completions URL, e.g. http://llm.ai.svc.cluster.local:8080/v1/chat/completions
     url: ""
