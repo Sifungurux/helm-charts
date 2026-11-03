@@ -1,0 +1,90 @@
+{{- if .Values.triage.enabled }}
+{{- $t := .Values.triage }}
+{{- $state := toJson (dict
+  "apiUrl" (printf "%s/api_jsonrpc.php" (include "zs.webUrl" .))
+  "triage" (dict
+    "url" (required "triage.llm.url is required" $t.llm.url)
+    "model" (required "triage.llm.model is required" $t.llm.model)
+    "apiKeyKey" $t.llm.apiKeyKey
+    "timeoutSeconds" $t.llm.timeoutSeconds
+    "minSeverity" (int $t.minSeverity)
+    "maxBatch" (int $t.maxBatch))) }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "zs.prefix" . }}-triage
+  labels:
+    {{- include "zs.labels" . | nindent 4 }}
+    app.kubernetes.io/component: triage
+data:
+  state.json: |
+    {{- $state | nindent 4 }}
+  triage.py: |
+    {{- .Files.Get "files/triage.py" | nindent 4 }}
+  # The API client and secret reader triage.py imports.
+  configure.py: |
+    {{- .Files.Get "files/configure.py" | nindent 4 }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "zs.prefix" . }}-triage
+  labels:
+    {{- include "zs.labels" . | nindent 4 }}
+    app.kubernetes.io/component: triage
+spec:
+  schedule: {{ $t.schedule | quote }}
+  # A slow model must not stack runs: the next one waits for this one.
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: {{ add $t.llm.timeoutSeconds 120 }}
+      template:
+        metadata:
+          labels:
+            {{- include "zs.labels" . | nindent 12 }}
+            app.kubernetes.io/component: triage
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            runAsGroup: 65534
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: triage
+              image: {{ include "zs.configureImage" . | quote }}
+              imagePullPolicy: {{ .Values.configure.image.pullPolicy }}
+              command: ["python", "-I", "-u", "/config/triage.py", "/config/state.json"]
+              env:
+                - name: SECRETS_DIR
+                  value: /secrets
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              {{- with $t.resources }}
+              resources:
+                {{- toYaml . | nindent 16 }}
+              {{- end }}
+              volumeMounts:
+                - name: config
+                  mountPath: /config
+                  readOnly: true
+                - name: secrets
+                  mountPath: /secrets
+                  readOnly: true
+          volumes:
+            - name: config
+              configMap:
+                name: {{ include "zs.prefix" . }}-triage
+            - name: secrets
+              secret:
+                secretName: {{ required "existingSecret is required" .Values.existingSecret }}
+{{- end }}

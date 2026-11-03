@@ -29,6 +29,7 @@ text can be passed in an encrypted values Secret (Flux `valuesFrom`).
 | kube-state-metrics | prometheus-community 8.7.0 |
 | Probe agent (Deployment + NetworkPolicy) | this chart |
 | Configure Job | this chart, `files/configure.py` |
+| Triage CronJob (optional) | this chart, `files/triage.py` |
 | ServiceAccount token for the Kubernetes templates | this chart |
 
 ## Configure Job
@@ -47,11 +48,33 @@ whenever its config or script changes (the Job name is a hash of both). It:
 The Job's ConfigMap holds the desired state (addresses, URLs) but never
 secrets: those are read from the mounted `existingSecret` at run time.
 
+## Triage CronJob
+
+Off by default (`triage.enabled`). Every `triage.schedule` (5 minutes) it takes
+the open problems at or above `triage.minSeverity` that have no `[triage]`
+message yet, up to `triage.maxBatch`, and sends them in one request to an
+OpenAI-compatible chat endpoint (`triage.llm.url`, `triage.llm.model`). Each
+verdict becomes a problem message, visible in the problem's history:
+
+```
+[triage] PAGE: PostgreSQL service down
+[triage] TICKET (duplicate of 4711): same failed CronJob pod
+```
+
+It only adds messages: it never acknowledges, closes or changes severity, so
+notification actions are unaffected. A problem without a usable verdict is
+retried next run. Runs never overlap (`concurrencyPolicy: Forbid`).
+
+It logs in as Admin (`admin-password`) and reads the LLM key from
+`existingSecret` key `triage.llm.apiKeyKey` (`llm-api-key`). The LLM's own
+NetworkPolicy must admit this namespace.
+
 ## Secret contract
 
 `existingSecret` must contain `db-name`, `db-user`, `db-password`,
 `admin-password`; `snmp-community` when SNMP devices are configured; and every
-key named in `configure.databases.instances[].passwordKey`.
+key named in `configure.databases.instances[].passwordKey`; `llm-api-key` when
+`triage.enabled`.
 
 ## Install with Flux
 
