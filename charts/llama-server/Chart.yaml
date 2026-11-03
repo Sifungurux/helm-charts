@@ -1,0 +1,21 @@
+apiVersion: v2
+name: llama-server
+description: llama.cpp-style inference server (llama.cpp or ik_llama.cpp llama-server) for a GGUF model, OpenAI-compatible API
+type: application
+version: 0.1.0
+# llama.cpp release the default image is built from (images/llama-cpp/REF).
+appVersion: "b12071"
+home: https://github.com/ggml-org/llama.cpp
+sources:
+  - https://github.com/ggml-org/llama.cpp
+  - https://github.com/ikawrakow/ik_llama.cpp
+  - https://github.com/Sifungurux/helm-charts
+maintainers:
+  - name: Jonas Kirk Pedersen
+    email: jkp@nordkeel.dk
+keywords:
+  - llm
+  - inference
+  - gguf
+  - llama.cpp
+  - ik_llama.cpp

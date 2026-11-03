@@ -1,0 +1,14 @@
+{{ include "llama-server.fullname" . }} ({{ .Values.engine }}) serves {{ .Values.model.id }} ({{ .Values.model.file }}) from {{ include "llama-server.image" . }}:
+
+  OpenAI base URL: http://{{ include "llama-server.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}/v1
+{{- if eq (toString .Values.replicaCount) "0" }}
+
+replicaCount is 0: the model downloads, but no server runs until you scale it up.
+{{- end }}
+{{- if .Values.networkPolicy.enabled }}
+
+Only namespaces matching networkPolicy.ingressNamespaceSelector can reach it.
+{{- end }}
+{{- if .Values.apiKey.enabled }}
+Clients must send the key from Secret {{ include "llama-server.apiKeySecret" . }}/{{ .Values.apiKey.secretKey }}.
+{{- end }}

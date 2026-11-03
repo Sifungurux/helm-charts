@@ -1,6 +1,8 @@
 # Packages every chart whose version is not yet in GHCR, pushes it as an OCI
 # artifact and signs it keyless with cosign. Flux verifies the signature
-# against this workflow's identity before installing.
+# against this workflow's identity before installing; when image.yaml calls
+# this workflow, the certificate still names release.yaml@refs/heads/main.
+# A chart whose pins (pins.yaml) are incomplete is skipped, not published.
 name: release
 
 on:
@@ -8,6 +10,12 @@ on:
     branches: [main]
     paths: ["charts/**"]
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      ref:
+        description: Commit to release (the pin job's commit)
+        type: string
+        required: true
 
 permissions:
   contents: read
@@ -23,6 +31,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || github.sha }}
 
       - uses: azure/setup-helm@v5
         with:
@@ -44,6 +54,10 @@ jobs:
             version=$(yq '.version' "${chart}Chart.yaml")
             if helm show chart "oci://$repo/$name" --version "$version" >/dev/null 2>&1; then
               echo "$name $version already published, skipping"
+              continue
+            fi
+            if ! scripts/check-pins.sh "$name"; then
+              echo "::notice::$name $version not published: pins incomplete; image.yaml's pin job will bump and release it"
               continue
             fi
             i=0

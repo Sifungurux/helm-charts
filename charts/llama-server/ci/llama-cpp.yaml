@@ -1,0 +1,7 @@
+# CI renders the chart once per engine. The digests are placeholders: the pin
+# workflow writes the real ones into values.yaml after each image build.
+fullnameOverride: llama-cpp
+engine: llama-cpp
+images:
+  llama-cpp:
+    digest: sha256:0000000000000000000000000000000000000000000000000000000000000000

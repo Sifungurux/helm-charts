@@ -1,0 +1,10 @@
+# ik_llama.cpp, reusing the llama-cpp release's GGUF (the homelab layout).
+fullnameOverride: ik-llama-cpp
+engine: ik-llama-cpp
+images:
+  ik-llama-cpp:
+    digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+persistence:
+  existingClaim: llama-cpp-models
+modelDownload:
+  enabled: false
