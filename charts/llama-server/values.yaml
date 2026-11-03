@@ -8,10 +8,10 @@ engine: llama-cpp
 images:
   llama-cpp:
     repository: ghcr.io/sifungurux/llama-cpp
-    digest: ""
+    digest: "sha256:5100e701c828b1244b600d616dd3a375d2928ca31670571f452d7eace08b1cae"
   ik-llama-cpp:
     repository: ghcr.io/sifungurux/ik-llama-cpp
-    digest: ""
+    digest: "sha256:ce0f1b7fc3e6ce96a6736481e60c034fa9c618f335c761541b029563c1e3063f"
 imagePullPolicy: IfNotPresent
 
 imagePullSecrets: []
@@ -31,9 +31,9 @@ model:
   file: Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf
   # -- Hugging Face commit to download. Set a branch name (e.g. main) to ask the
   # pin workflow to resolve it: it writes the commit SHA and sha256 back here.
-  revision: main
+  revision: "b17cb02dd882d5b6ab62fc777ad2995f19668350"
   # -- sha256 of the GGUF, checked by the download Job. Filled in by the pin workflow.
-  sha256: ""
+  sha256: "fadc3e5f8d42bf7e894a785b05082e47daee4df26680389817e2093056f088ad"
 
 server:
   # -- Port llama-server listens on.

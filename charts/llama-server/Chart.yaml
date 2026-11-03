@@ -2,7 +2,7 @@ apiVersion: v2
 name: llama-server
 description: llama.cpp-style inference server (llama.cpp or ik_llama.cpp llama-server) for a GGUF model, OpenAI-compatible API
 type: application
-version: 0.1.0
+version: "0.1.1"
 # llama.cpp release the default image is built from (images/llama-cpp/REF).
 appVersion: "b12071"
 home: https://github.com/ggml-org/llama.cpp
