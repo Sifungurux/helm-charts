@@ -25,11 +25,15 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{- define "llama-server.image" -}}
-{{- if .Values.image.digest }}
-{{- printf "%s@%s" .Values.image.repository .Values.image.digest }}
-{{- else }}
-{{- printf "%s:%s" .Values.image.repository (required "set image.digest (or image.tag): the image workflow tags builds <upstream-sha>-<repo-sha>" .Values.image.tag) }}
+{{- $img := index .Values.images .Values.engine }}
+{{- if not $img }}
+{{- fail (printf "engine %q has no entry in images" .Values.engine) }}
 {{- end }}
+{{- printf "%s@%s" $img.repository (required (printf "images.%s.digest is empty: the pin workflow fills it after the image build" .Values.engine) $img.digest) }}
+{{- end }}
+
+{{- define "llama-server.apiKeySecret" -}}
+{{- default (printf "%s-api-key" (include "llama-server.fullname" .)) .Values.apiKey.existingSecret }}
 {{- end }}
 
 {{- define "llama-server.claimName" -}}

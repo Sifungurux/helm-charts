@@ -1,112 +1,120 @@
-# None of these engines publish an image we can verify, so each one is built
-# here from the upstream commit pinned in images/<name>/<ref file>, pushed to
-# GHCR and signed, with an SBOM and build provenance attached.
-# Bumping an image = a PR that changes its ref file. A push rebuilds only the
-# images whose directory changed; a manual run rebuilds all of them.
+# Build, pin, release. Driven by pins.yaml:
+#
+#   plan     which images changed (their ref file's directory or Dockerfile)
+#   build    each changed image at its pinned upstream commit: push to GHCR,
+#            cosign-sign, SBOM + build provenance
+#   pin      scripts/pin.sh writes the new digests into the charts' values.yaml,
+#            resolves any model revision that is not a commit SHA, bumps the
+#            versions of the charts it touched, lints them and commits to main
+#   release  publishes and signs those chart versions (release.yaml)
+#
+# So bumping an engine is one PR that changes its ref file; after merge the
+# signed chart appears in GHCR and Renovate takes it into the homelab repo.
+# The commit the pin job pushes is made with GITHUB_TOKEN, so it does not
+# trigger this or any other workflow again.
 name: image
 
 on:
   push:
     branches: [main]
-    paths: ["images/**"]
+    paths: ["images/**", "charts/*/values.yaml"]
   workflow_dispatch:
+    inputs:
+      build:
+        description: Images to rebuild (space-separated names from pins.yaml, or "all")
+        default: all
 
 permissions:
   contents: read
-  packages: write
-  id-token: write
-  attestations: write
 
 jobs:
-  build:
+  plan:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # colibri: GLM + qwen36 engines.
-          - name: colibri
-            upstream: JustVugg/colibri
-            dir: images/colibri
-            ref_file: images/colibri/COLIBRI_REF
-            dockerfile: images/colibri/Dockerfile
-            engine: ""
-          - name: llama-cpp
-            upstream: ggml-org/llama.cpp
-            dir: images/llama-cpp
-            ref_file: images/llama-cpp/REF
-            dockerfile: images/llama-cpp/Dockerfile
-            engine: mainline
-          # Same Dockerfile as llama-cpp: the build differs only in CMake flags.
-          - name: ik-llama-cpp
-            upstream: ikawrakow/ik_llama.cpp
-            dir: images/ik-llama-cpp
-            ref_file: images/ik-llama-cpp/REF
-            dockerfile: images/llama-cpp/Dockerfile
-            engine: ik
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0   # to diff against the previous main
 
-      - name: Decide whether to build
-        id: changed
+      - name: Pick images to build
+        id: plan
         env:
           BEFORE: ${{ github.event.before }}
+          REQUESTED: ${{ inputs.build }}
         run: |
-          if [ "${{ github.event_name }}" != "push" ] || ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
-            echo "build=true" >> "$GITHUB_OUTPUT"; exit 0
-          fi
-          # The shared Dockerfile lives in images/llama-cpp, so ik rebuilds when it changes.
-          paths="${{ matrix.dir }} ${{ matrix.dockerfile }}"
-          if git diff --quiet "$BEFORE" "$GITHUB_SHA" -- $paths; then
-            echo "build=false" >> "$GITHUB_OUTPUT"
-            echo "${{ matrix.name }}: unchanged, skipping" >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "build=true" >> "$GITHUB_OUTPUT"
-          fi
+          set -euo pipefail
+          picked=()
+          for img in $(yq '.images | keys | .[]' pins.yaml); do
+            ref=$(yq ".images.\"$img\".ref" pins.yaml)
+            df=$(yq ".images.\"$img\".dockerfile" pins.yaml)
+            if [ "${{ github.event_name }}" = workflow_dispatch ]; then
+              [ "$REQUESTED" = all ] || [[ " $REQUESTED " == *" $img "* ]] || continue
+            elif git cat-file -e "$BEFORE^{commit}" 2>/dev/null \
+                 && git diff --quiet "$BEFORE" "$GITHUB_SHA" -- "$(dirname "$ref")" "$df"; then
+              continue
+            fi
+            picked+=("$img")
+          done
+          echo "build: ${picked[*]:-none}" >> "$GITHUB_STEP_SUMMARY"
+          matrix=$(for img in "${picked[@]}"; do
+            yq -o=json -I=0 ".images.\"$img\" | {\"name\": \"$img\", \"upstream\": .upstream, \"ref\": .ref, \"dockerfile\": .dockerfile, \"buildArgs\": .buildArgs}" pins.yaml
+          done | jq -sc .)
+          echo "matrix=${matrix:-[]}" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: plan
+    if: needs.plan.outputs.matrix != '[]'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ${{ fromJson(needs.plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v7
 
       - name: Resolve upstream ref
-        if: steps.changed.outputs.build == 'true'
         id: ref
         run: |
-          sha=$(tr -d '[:space:]' < "${{ matrix.ref_file }}")
+          sha=$(tr -d '[:space:]' < "${{ matrix.image.ref }}")
           if ! echo "$sha" | grep -Eq '^[0-9a-f]{40}$'; then
-            echo "::error::${{ matrix.ref_file }} must be a full 40-char commit SHA"; exit 1
+            echo "::error::${{ matrix.image.ref }} must be a full 40-char commit SHA"; exit 1
           fi
-          echo "sha=$sha" >> "$GITHUB_OUTPUT"
-          # Upstream commit + this repo's commit: a Dockerfile change gets a new tag.
-          echo "short=${sha:0:12}-${GITHUB_SHA:0:7}" >> "$GITHUB_OUTPUT"
-          echo "image=ghcr.io/$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')/${{ matrix.name }}" >> "$GITHUB_OUTPUT"
+          {
+            echo "sha=$sha"
+            # Upstream commit + this repo's commit: a Dockerfile change gets a new tag.
+            echo "short=${sha:0:12}-${GITHUB_SHA:0:7}"
+            echo "image=ghcr.io/$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')/${{ matrix.image.name }}"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Check out upstream at the pinned commit
-        if: steps.changed.outputs.build == 'true'
         uses: actions/checkout@v7
         with:
-          repository: ${{ matrix.upstream }}
+          repository: ${{ matrix.image.upstream }}
           ref: ${{ steps.ref.outputs.sha }}
           path: upstream
           persist-credentials: false
 
-      - if: steps.changed.outputs.build == 'true'
-        uses: docker/setup-buildx-action@v4
+      - uses: docker/setup-buildx-action@v4
 
-      - if: steps.changed.outputs.build == 'true'
-        uses: docker/login-action@v3
+      - uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push
-        if: steps.changed.outputs.build == 'true'
         id: build
         uses: docker/build-push-action@v7
         with:
           context: upstream
-          file: ${{ matrix.dockerfile }}
-          build-args: |
-            ${{ matrix.engine && format('ENGINE={0}', matrix.engine) || '' }}
+          file: ${{ matrix.image.dockerfile }}
+          build-args: ${{ matrix.image.buildArgs }}
           platforms: linux/amd64   # built for x86-64-v3 (needs AVX2)
           push: true
           sbom: true
@@ -114,30 +122,121 @@ jobs:
           tags: |
             ${{ steps.ref.outputs.image }}:${{ steps.ref.outputs.short }}
           labels: |
-            org.opencontainers.image.source=https://github.com/${{ matrix.upstream }}
+            org.opencontainers.image.source=https://github.com/${{ matrix.image.upstream }}
             org.opencontainers.image.revision=${{ steps.ref.outputs.sha }}
 
-      - if: steps.changed.outputs.build == 'true'
-        uses: sigstore/cosign-installer@v3
+      - uses: sigstore/cosign-installer@v3
 
       - name: Sign
-        if: steps.changed.outputs.build == 'true'
         run: cosign sign --yes "${{ steps.ref.outputs.image }}@${{ steps.build.outputs.digest }}"
 
-      - if: steps.changed.outputs.build == 'true'
-        uses: actions/attest-build-provenance@v4
+      - uses: actions/attest-build-provenance@v4
         with:
           subject-name: ${{ steps.ref.outputs.image }}
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true
 
-      - name: Summary
-        if: steps.changed.outputs.build == 'true'
+      - name: Hand the digest to the pin job
         run: |
-          echo "### ${{ matrix.name }}" >> "$GITHUB_STEP_SUMMARY"
-          echo "Set in the HelmRelease values:" >> "$GITHUB_STEP_SUMMARY"
-          echo '```yaml' >> "$GITHUB_STEP_SUMMARY"
-          echo "image:" >> "$GITHUB_STEP_SUMMARY"
-          echo "  repository: ${{ steps.ref.outputs.image }}" >> "$GITHUB_STEP_SUMMARY"
-          echo "  digest: ${{ steps.build.outputs.digest }}" >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          mkdir -p digest
+          echo "${{ steps.build.outputs.digest }}" > "digest/${{ matrix.image.name }}"
+          echo "${{ matrix.image.name }}: \`${{ steps.ref.outputs.image }}@${{ steps.build.outputs.digest }}\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ matrix.image.name }}
+          path: digest/
+          retention-days: 7
+
+  pin:
+    needs: [plan, build]
+    # Also when no image was built (model pins), and when one of several builds
+    # failed: the others still get pinned, and release.yaml will not publish a
+    # chart whose pins are incomplete.
+    if: ${{ !cancelled() && needs.plan.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: pin-main
+      cancel-in-progress: false
+    outputs:
+      changed: ${{ steps.pin.outputs.changed }}
+      sha: ${{ steps.push.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main   # pin on top of the latest main, not the triggering commit
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: digest-*
+          merge-multiple: true
+          path: digests
+
+      - name: Install the Hugging Face client
+        run: pip install --quiet "huggingface_hub>=0.34,<2"
+
+      - name: Pin
+        id: pin
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}   # optional, for gated models
+        run: |
+          set -euo pipefail
+          scripts/pin.sh digests > changed.txt
+          if [ -s changed.txt ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            { echo "Pinned and bumped:"; sed 's/^/- /' changed.txt; echo; echo '```diff'; git diff; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Nothing to pin." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - uses: azure/setup-helm@v5
+        if: steps.pin.outputs.changed == 'true'
+        with:
+          version: v3.19.0
+
+      - name: Lint the bumped charts
+        if: steps.pin.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          while read -r chart; do
+            scripts/check-pins.sh "$chart" || echo "::warning::$chart is still incomplete; release will skip it"
+            set -- "charts/$chart/"ci/*.yaml
+            if [ -e "$1" ]; then
+              for v in "$@"; do helm lint --strict "charts/$chart" -f "$v"; done
+            else
+              helm lint --strict "charts/$chart"
+            fi
+          done < changed.txt
+
+      - name: Commit and push
+        id: push
+        if: steps.pin.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add charts
+          git commit -q -m "Pin $(paste -sd, changed.txt | sed 's/,/, /g')" \
+            -m "Image digests and model revisions written by scripts/pin.sh (run ${{ github.run_id }})."
+          for _ in 1 2 3; do
+            git push origin HEAD:main && break
+            git pull --rebase -q origin main
+          done
+          git fetch -q origin main
+          git merge-base --is-ancestor HEAD origin/main || { echo "::error::could not push the pin commit"; exit 1; }
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  release:
+    needs: pin
+    if: needs.pin.outputs.changed == 'true'
+    permissions:
+      contents: read
+      packages: write
+      id-token: write   # keyless signing; the identity stays release.yaml@refs/heads/main
+    uses: ./.github/workflows/release.yaml
+    with:
+      ref: ${{ needs.pin.outputs.sha }}

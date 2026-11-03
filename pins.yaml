@@ -1,0 +1,50 @@
+# Everything a chart pins, in one place. Read by:
+#   .github/workflows/image.yaml  builds each image at its upstream commit, then
+#                                 scripts/pin.sh writes digests and resolves
+#                                 model revisions into the charts' values.yaml
+#                                 and bumps the chart versions it touched
+#   .github/workflows/release.yaml  scripts/check-pins.sh refuses to publish a
+#                                 chart while any of its pins below is empty
+#
+# Bumping an engine = a PR that changes its ref file. Moving a model to a new
+# upstream commit = a PR that sets its revision to a branch name (e.g. main).
+
+images:
+  colibri:
+    upstream: JustVugg/colibri
+    ref: images/colibri/COLIBRI_REF
+    dockerfile: images/colibri/Dockerfile
+    buildArgs: ""
+    # Where the built digest is written: chart name and yq path in its values.yaml.
+    targets:
+      - chart: colibri
+        path: .image.digest
+
+  llama-cpp:
+    upstream: ggml-org/llama.cpp
+    ref: images/llama-cpp/REF
+    dockerfile: images/llama-cpp/Dockerfile
+    buildArgs: ENGINE=mainline
+    targets:
+      - chart: llama-server
+        path: .images.llama-cpp.digest
+
+  # Same Dockerfile as llama-cpp: the build differs only in CMake flags.
+  ik-llama-cpp:
+    upstream: ikawrakow/ik_llama.cpp
+    ref: images/ik-llama-cpp/REF
+    dockerfile: images/llama-cpp/Dockerfile
+    buildArgs: ENGINE=ik
+    targets:
+      - chart: llama-server
+        path: .images.ik-llama-cpp.digest
+
+# Hugging Face models: <path>.repo and <path>.revision, plus <path>.file and
+# <path>.sha256 for single-file models. A revision that is not a 40-char SHA is
+# resolved to one; the file's sha256 comes from the Hub's LFS metadata, so
+# nothing is downloaded.
+models:
+  - chart: colibri
+    path: .model
+  - chart: llama-server
+    path: .model

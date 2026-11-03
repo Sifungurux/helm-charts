@@ -16,6 +16,7 @@ spec:
     metadata:
       annotations:
         llama-server/model: {{ include "llama-server.markerContent" . | quote }}
+        llama-server/engine: {{ .Values.engine | quote }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -64,7 +65,7 @@ spec:
       containers:
         - name: llama-server
           image: {{ include "llama-server.image" . }}
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
           args:
             - --model
             - {{ include "llama-server.modelPath" . | quote }}
@@ -96,6 +97,9 @@ spec:
             {{- if .Values.apiKey.enabled }}
             - --api-key-file
             - /run/secrets/llama-server/api-key
+            {{- end }}
+            {{- range (index .Values.server.engineArgs .Values.engine) }}
+            - {{ . | quote }}
             {{- end }}
             {{- range .Values.server.extraArgs }}
             - {{ . | quote }}
@@ -144,7 +148,7 @@ spec:
         {{- if .Values.apiKey.enabled }}
         - name: api-key
           secret:
-            secretName: {{ .Values.apiKey.existingSecret }}
+            secretName: {{ include "llama-server.apiKeySecret" . }}
             defaultMode: 0440
             items:
               - key: {{ .Values.apiKey.secretKey }}

@@ -18,7 +18,7 @@
     "service": "llama-cpp",
     "port": 8080,
     "model": "qwen3-coder-30b",
-    "secret": "llama-server-api-key",
+    "secret": "llama-cpp-api-key",
     "secretKey": "api-key"
   },
   {
@@ -29,7 +29,7 @@
     "service": "ik-llama-cpp",
     "port": 8080,
     "model": "qwen3-coder-30b",
-    "secret": "llama-server-api-key",
+    "secret": "ik-llama-cpp-api-key",
     "secretKey": "api-key"
   }
 ]

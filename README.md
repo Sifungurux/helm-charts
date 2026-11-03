@@ -6,7 +6,7 @@ Helm charts for the homelab rack, published as signed OCI artifacts to
 | Chart | What it runs |
 | --- | --- |
 | [`colibri`](charts/colibri) | [colibri](https://github.com/JustVugg/colibri) LLM inference server (Qwen3-Coder-30B by default), OpenAI- and Anthropic-compatible API |
-| [`llama-server`](charts/llama-server) | llama-server from [llama.cpp](https://github.com/ggml-org/llama.cpp) or [ik_llama.cpp](https://github.com/ikawrakow/ik_llama.cpp) for one GGUF model, OpenAI-compatible API. `ci/` holds a profile per engine |
+| [`llama-server`](charts/llama-server) | llama-server from [llama.cpp](https://github.com/ggml-org/llama.cpp) or [ik_llama.cpp](https://github.com/ikawrakow/ik_llama.cpp) (`engine:`) for one GGUF model, OpenAI-compatible API |
 | [`zabbix-stack`](charts/zabbix-stack) | Zabbix 7.0 LTS umbrella chart: server, frontend and PostgreSQL (zabbix-community), node agents, kube-state-metrics, a probe agent and a configure Job that sets up hosts and templates through the API |
 
 ## How it flows
@@ -14,13 +14,34 @@ Helm charts for the homelab rack, published as signed OCI artifacts to
 ```
 PR ──► lint.yaml        helm lint + render + kubeconform, version-bump check
 main ─► release.yaml    package changed charts ─► push to GHCR (OCI) ─► cosign sign (keyless)
-main ─► image.yaml      build each changed images/<name> at its pinned upstream commit ─► push ─► sign + SBOM + provenance
+main ─► image.yaml      build each changed image at its pinned upstream commit ─► push ─► sign + SBOM + provenance
+                        ─► pin: digests + model revisions into values.yaml, bump chart ─► commit ─► release.yaml
                                       │
 homelab repo:  OCIRepository (verify: cosign, this repo's release workflow) ─► HelmRelease ─► cluster
 ```
 
 Charts are only published when `version` in `Chart.yaml` changes, so every
-chart change needs a version bump (CI enforces it). Charts with dependencies
+chart change needs a version bump (CI enforces it). A chart is also not
+published while any pin listed for it in [`pins.yaml`](pins.yaml) is empty.
+
+## Pins are automatic
+
+[`pins.yaml`](pins.yaml) lists every image digest and model revision a chart
+depends on. Nothing in it is copied by hand:
+
+- **Image digests.** A PR that changes an image's ref file (e.g.
+  `images/llama-cpp/REF`) rebuilds that image on merge. The pin job writes the
+  new digest into the chart's `values.yaml`, bumps the chart's patch version,
+  lints it, commits to `main` and releases it. Renovate then opens the PR in
+  the homelab repo.
+- **Model revisions.** Set a model's `revision` to a branch name (`main`) in a
+  PR. On merge the pin job resolves it to the commit SHA and, for single-file
+  models, writes the file's sha256 from the Hub's metadata (nothing is
+  downloaded). Gated models need an `HF_TOKEN` repository secret.
+
+Rebuild by hand from Actions → image → Run workflow (`all`, or image names).
+The pin job's commit is made with `GITHUB_TOKEN`, so it triggers nothing
+further; it runs `helm lint` itself before pushing. Charts with dependencies
 (`zabbix-stack`) get `helm dependency update` in CI; run it locally before
 `helm lint`, and commit the resulting `Chart.lock`.
 
@@ -135,21 +156,19 @@ memory per workload. The llama-server releases are installed at
 `replicaCount: 0`, so they never compete with colibri for RAM; the script
 scales each up while it is measured. See [`tools/llm-bench`](tools/llm-bench).
 
-The llama-server releases need their own API key Secret:
-
-```bash
-kubectl -n ai create secret generic llama-server-api-key --from-literal=api-key="$(openssl rand -hex 24)"
-```
+Each llama-server release creates its own `<release>-api-key` Secret with a
+random key on first install and keeps it on upgrades (`apiKey.create`).
 
 ## Upgrading
 
-- **New colibri build**: change `images/colibri/COLIBRI_REF`, merge, then
-  set `image.digest` in `charts/colibri/values.yaml` and bump the chart.
+- **New colibri build**: change `images/colibri/COLIBRI_REF` and merge; the
+  pin job sets `image.digest`, bumps and releases the chart.
 - **New llama.cpp or ik_llama.cpp build**: change `images/llama-cpp/REF` or
-  `images/ik-llama-cpp/REF`, merge, then set `image.digest` in the HelmRelease.
+  `images/ik-llama-cpp/REF` and merge; the rest is automatic (see above).
   Both images come from `images/llama-cpp/Dockerfile`, so editing it rebuilds both.
-- **New model revision or model**: change `model.*` in `charts/colibri/values.yaml`
-  and bump the chart (or override it in the HelmRelease). The
+- **New model revision or model**: set `model.revision: main` (and change
+  `model.repo`/`file` for a new model) and merge; the pin job resolves and
+  releases it. The
   download Job's name is a hash of its spec, so a new revision gets a new Job,
   and the server's init container waits for it before starting.
 - **Chart change**: bump `version`. Renovate then bumps the pinned tag and

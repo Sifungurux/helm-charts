@@ -1,20 +1,10 @@
-# Profile: ik_llama.cpp, reusing the llama-cpp release's GGUF so both engines
-# read the identical file. Fused MoE (-fmoe) is on by default in ik_llama.cpp.
+# ik_llama.cpp, reusing the llama-cpp release's GGUF (the homelab layout).
 fullnameOverride: ik-llama-cpp
-image:
-  repository: ghcr.io/sifungurux/ik-llama-cpp
-  # Placeholder for CI; the HelmRelease pins the digest from the image workflow.
-  digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+engine: ik-llama-cpp
+images:
+  ik-llama-cpp:
+    digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
 persistence:
   existingClaim: llama-cpp-models
 modelDownload:
   enabled: false
-server:
-  threads: 4
-  threadsBatch: 8
-  flashAttn: "on"
-  extraArgs:
-    - --jinja
-    # Repack weights at load into ik's CPU-friendly layouts. Turns mmap off, so
-    # the model sits in anonymous memory (~19 GB): still under the 26Gi limit.
-    - -rtr

@@ -1,16 +1,18 @@
-# -- Built in this repo from a pinned upstream commit (.github/workflows/image.yaml):
-# ghcr.io/sifungurux/llama-cpp (ggml-org/llama.cpp) or
-# ghcr.io/sifungurux/ik-llama-cpp (ikawrakow/ik_llama.cpp). Both ship the same
-# llama-server binary at /app/llama-server; ci/*.yaml has a profile for each.
-image:
-  repository: ghcr.io/sifungurux/llama-cpp
-  # -- Used only when digest is empty. One of the two must be set: builds are
-  # tagged <upstream-sha12>-<this-repo-sha7>, so there is no sensible default.
-  tag: ""
-  # -- Pulled by digest when set (recommended). Copy it from the image
-  # workflow's run summary.
-  digest: ""
-  pullPolicy: IfNotPresent
+# -- Which engine runs: llama-cpp (ggml-org/llama.cpp) or ik-llama-cpp
+# (ikawrakow/ik_llama.cpp). Picks the image and the engine's default flags.
+engine: llama-cpp
+
+# -- One image per engine, built in this repo from the upstream commit in
+# images/<engine>/REF. The pin workflow writes each digest here after a build
+# (see pins.yaml); the release workflow will not publish the chart while one is empty.
+images:
+  llama-cpp:
+    repository: ghcr.io/sifungurux/llama-cpp
+    digest: ""
+  ik-llama-cpp:
+    repository: ghcr.io/sifungurux/ik-llama-cpp
+    digest: ""
+imagePullPolicy: IfNotPresent
 
 imagePullSecrets: []
 nameOverride: ""
@@ -27,10 +29,10 @@ model:
   repo: unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF
   # -- GGUF file in that repository (a single-file quant).
   file: Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf
-  # -- Hugging Face commit to download. Pin a 40-char SHA: the download Job logs
-  # the commit "main" resolved to, so the first run tells you what to pin.
+  # -- Hugging Face commit to download. Set a branch name (e.g. main) to ask the
+  # pin workflow to resolve it: it writes the commit SHA and sha256 back here.
   revision: main
-  # -- Expected sha256 of the GGUF. Empty = not checked (the Job logs it).
+  # -- sha256 of the GGUF, checked by the download Job. Filled in by the pin workflow.
   sha256: ""
 
 server:
@@ -42,24 +44,38 @@ server:
   # Decode is memory-bound: physical cores is usually best.
   threads: 4
   # -- Threads for prompt processing (--threads-batch). 0 = same as threads.
-  threadsBatch: 0
+  # Prefill is compute-bound, so hyperthreads help a little here.
+  threadsBatch: 8
   # -- Parallel request slots (--parallel). Each gets ctxSize / parallel tokens.
   parallel: 1
   # -- Flash attention (--flash-attn on|off|auto). "" = engine default.
   flashAttn: "on"
   # -- Expose Prometheus /metrics (--metrics). Needs the API key when one is set.
   metrics: true
-  # -- Flavour-specific flags, one list item per argv entry, e.g. ["-rtr"] for
-  # ik_llama.cpp or ["--jinja"]. Passed after the generated flags.
+  # -- Default flags per engine, after the generated ones.
+  engineArgs:
+    llama-cpp:
+      - --jinja      # chat template from the GGUF, needed for tool calls
+      - --no-webui   # the image is built without the UI anyway
+    ik-llama-cpp:
+      - --jinja
+      # Repack weights at load into ik's CPU layouts. Turns mmap off, so the
+      # model sits in anonymous memory (~19 GB): still under the 26Gi limit.
+      - -rtr
+  # -- More flags, one list item per argv entry, after engineArgs.
   extraArgs: []
   extraEnv: []
 
 # -- API key clients must present, mounted as a file (--api-key-file), so it
-# never appears in the process arguments. Point at an existing Secret.
+# never appears in the process arguments.
 apiKey:
   enabled: true
-  existingSecret: llama-server-api-key
+  # -- Secret holding the key. Empty = <fullname>-api-key.
+  existingSecret: ""
   secretKey: api-key
+  # -- Create the Secret with a random key on first install and keep that key
+  # on upgrades (it is read back from the cluster). Set false to bring your own.
+  create: true
 
 persistence:
   # -- Use an existing PVC instead of creating one, e.g. another release's
