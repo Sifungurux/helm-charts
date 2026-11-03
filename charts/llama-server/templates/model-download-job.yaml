@@ -1,0 +1,98 @@
+{{- if .Values.modelDownload.enabled }}
+# A regular release resource, not a hook (see the colibri chart): with Flux's
+# default wait, a post-install hook would deadlock behind the Deployment. The
+# name carries a hash of the spec, so a new revision or file is a new Job.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "llama-server.fullname" . }}-dl-{{ include "llama-server.downloadHash" . }}
+  labels:
+    {{- include "llama-server.labels" . | nindent 4 }}
+    app.kubernetes.io/component: model-download
+spec:
+  backoffLimit: 3
+  activeDeadlineSeconds: {{ .Values.modelDownload.activeDeadlineSeconds }}
+  template:
+    metadata:
+      labels:
+        {{- include "llama-server.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: model-download
+    spec:
+      restartPolicy: OnFailure
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: download
+          image: "{{ .Values.modelDownload.image.repository }}:{{ .Values.modelDownload.image.tag }}"
+          env:
+            - name: REPO
+              value: {{ .Values.model.repo | quote }}
+            - name: REVISION
+              value: {{ .Values.model.revision | quote }}
+            - name: FILE
+              value: {{ .Values.model.file | quote }}
+            - name: SHA256
+              value: {{ .Values.model.sha256 | quote }}
+            - name: TARGET
+              value: {{ include "llama-server.modelDir" . }}
+            - name: MARKER
+              value: {{ include "llama-server.marker" . }}
+            - name: MARKER_CONTENT
+              value: {{ include "llama-server.markerContent" . | quote }}
+            - name: HOME
+              value: /tmp
+            {{- with .Values.modelDownload.hfTokenSecret }}
+            - name: HF_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ . }}
+                  key: token
+            {{- end }}
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              pip install --no-cache-dir --user -q "huggingface_hub[cli]"
+              rm -f "$MARKER"
+              mkdir -p "$TARGET"
+              python3 -c 'import os; from huggingface_hub import HfApi; print("resolved commit:", HfApi().model_info(os.environ["REPO"], revision=os.environ["REVISION"]).sha)'
+              ~/.local/bin/hf download "$REPO" "$FILE" --revision "$REVISION" --local-dir "$TARGET"
+              sum=$(sha256sum "$TARGET/$FILE" | cut -d' ' -f1)
+              echo "sha256: $sum"
+              if [ -n "$SHA256" ] && [ "$sum" != "$SHA256" ]; then
+                echo "sha256 mismatch, expected $SHA256" >&2
+                rm -f "$TARGET/$FILE"
+                exit 1
+              fi
+              # Marker the server's init container waits for; written last.
+              printf '%s' "$MARKER_CONTENT" > "$MARKER.tmp"
+              mv "$MARKER.tmp" "$MARKER"
+              du -sh "$TARGET/$FILE"
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          resources:
+            {{- toYaml .Values.modelDownload.resources | nindent 12 }}
+          volumeMounts:
+            - name: models
+              mountPath: /model
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: {{ include "llama-server.claimName" . }}
+        - name: tmp
+          emptyDir: {}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

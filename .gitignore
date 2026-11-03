@@ -5,3 +5,6 @@ dist/
 # Helm dependency downloads and local archives
 charts/*/charts/
 /*.tar.gz
+
+# Python bytecode
+__pycache__/

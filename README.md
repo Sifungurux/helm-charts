@@ -6,6 +6,7 @@ Helm charts for the homelab rack, published as signed OCI artifacts to
 | Chart | What it runs |
 | --- | --- |
 | [`colibri`](charts/colibri) | [colibri](https://github.com/JustVugg/colibri) LLM inference server (Qwen3-Coder-30B by default), OpenAI- and Anthropic-compatible API |
+| [`llama-server`](charts/llama-server) | llama-server from [llama.cpp](https://github.com/ggml-org/llama.cpp) or [ik_llama.cpp](https://github.com/ikawrakow/ik_llama.cpp) for one GGUF model, OpenAI-compatible API. `ci/` holds a profile per engine |
 | [`zabbix-stack`](charts/zabbix-stack) | Zabbix 7.0 LTS umbrella chart: server, frontend and PostgreSQL (zabbix-community), node agents, kube-state-metrics, a probe agent and a configure Job that sets up hosts and templates through the API |
 
 ## How it flows
@@ -13,7 +14,7 @@ Helm charts for the homelab rack, published as signed OCI artifacts to
 ```
 PR ──► lint.yaml        helm lint + render + kubeconform, version-bump check
 main ─► release.yaml    package changed charts ─► push to GHCR (OCI) ─► cosign sign (keyless)
-main ─► image.yaml      build colibri at images/colibri/COLIBRI_REF ─► push ─► sign + SBOM + provenance
+main ─► image.yaml      build each changed images/<name> at its pinned upstream commit ─► push ─► sign + SBOM + provenance
                                       │
 homelab repo:  OCIRepository (verify: cosign, this repo's release workflow) ─► HelmRelease ─► cluster
 ```
@@ -126,10 +127,27 @@ chart 0.1.5, measured 2026-11-01:
 Pure decode is about 9 tok/s (1000 / `T(1)`); the rest is prompt processing
 and request overhead. RSS is about 18 GB once every expert is loaded.
 
+## Comparing engines
+
+`tools/llm-bench/bench.py` runs colibri, llama.cpp and ik_llama.cpp one at a
+time on the same worker and reports TTFT, prefill and decode speed and peak
+memory per workload. The llama-server releases are installed at
+`replicaCount: 0`, so they never compete with colibri for RAM; the script
+scales each up while it is measured. See [`tools/llm-bench`](tools/llm-bench).
+
+The llama-server releases need their own API key Secret:
+
+```bash
+kubectl -n ai create secret generic llama-server-api-key --from-literal=api-key="$(openssl rand -hex 24)"
+```
+
 ## Upgrading
 
 - **New colibri build**: change `images/colibri/COLIBRI_REF`, merge, then
   set `image.digest` in `charts/colibri/values.yaml` and bump the chart.
+- **New llama.cpp or ik_llama.cpp build**: change `images/llama-cpp/REF` or
+  `images/ik-llama-cpp/REF`, merge, then set `image.digest` in the HelmRelease.
+  Both images come from `images/llama-cpp/Dockerfile`, so editing it rebuilds both.
 - **New model revision or model**: change `model.*` in `charts/colibri/values.yaml`
   and bump the chart (or override it in the HelmRelease). The
   download Job's name is a hash of its spec, so a new revision gets a new Job,

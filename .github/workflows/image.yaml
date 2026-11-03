@@ -1,13 +1,14 @@
-# colibri publishes no container image, so this builds images/colibri/Dockerfile
-# (GLM + qwen36 engines) against upstream at the commit in images/colibri/COLIBRI_REF,
-# pushes it to GHCR and signs it, with an SBOM and build provenance attached.
-# Bumping the image = a PR that changes COLIBRI_REF.
+# None of these engines publish an image we can verify, so each one is built
+# here from the upstream commit pinned in images/<name>/<ref file>, pushed to
+# GHCR and signed, with an SBOM and build provenance attached.
+# Bumping an image = a PR that changes its ref file. A push rebuilds only the
+# images whose directory changed; a manual run rebuilds all of them.
 name: image
 
 on:
   push:
     branches: [main]
-    paths: ["images/colibri/**"]
+    paths: ["images/**"]
   workflow_dispatch:
 
 permissions:
@@ -17,45 +18,95 @@ permissions:
   attestations: write
 
 jobs:
-  colibri:
+  build:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # colibri: GLM + qwen36 engines.
+          - name: colibri
+            upstream: JustVugg/colibri
+            dir: images/colibri
+            ref_file: images/colibri/COLIBRI_REF
+            dockerfile: images/colibri/Dockerfile
+            engine: ""
+          - name: llama-cpp
+            upstream: ggml-org/llama.cpp
+            dir: images/llama-cpp
+            ref_file: images/llama-cpp/REF
+            dockerfile: images/llama-cpp/Dockerfile
+            engine: mainline
+          # Same Dockerfile as llama-cpp: the build differs only in CMake flags.
+          - name: ik-llama-cpp
+            upstream: ikawrakow/ik_llama.cpp
+            dir: images/ik-llama-cpp
+            ref_file: images/ik-llama-cpp/REF
+            dockerfile: images/llama-cpp/Dockerfile
+            engine: ik
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0   # to diff against the previous main
+
+      - name: Decide whether to build
+        id: changed
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          if [ "${{ github.event_name }}" != "push" ] || ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            echo "build=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          # The shared Dockerfile lives in images/llama-cpp, so ik rebuilds when it changes.
+          paths="${{ matrix.dir }} ${{ matrix.dockerfile }}"
+          if git diff --quiet "$BEFORE" "$GITHUB_SHA" -- $paths; then
+            echo "build=false" >> "$GITHUB_OUTPUT"
+            echo "${{ matrix.name }}: unchanged, skipping" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Resolve upstream ref
+        if: steps.changed.outputs.build == 'true'
         id: ref
         run: |
-          sha=$(tr -d '[:space:]' < images/colibri/COLIBRI_REF)
+          sha=$(tr -d '[:space:]' < "${{ matrix.ref_file }}")
           if ! echo "$sha" | grep -Eq '^[0-9a-f]{40}$'; then
-            echo "::error::COLIBRI_REF must be a full 40-char commit SHA"; exit 1
+            echo "::error::${{ matrix.ref_file }} must be a full 40-char commit SHA"; exit 1
           fi
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
           # Upstream commit + this repo's commit: a Dockerfile change gets a new tag.
           echo "short=${sha:0:12}-${GITHUB_SHA:0:7}" >> "$GITHUB_OUTPUT"
-          echo "image=ghcr.io/$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')/colibri" >> "$GITHUB_OUTPUT"
+          echo "image=ghcr.io/$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')/${{ matrix.name }}" >> "$GITHUB_OUTPUT"
 
-      - name: Check out colibri at the pinned commit
+      - name: Check out upstream at the pinned commit
+        if: steps.changed.outputs.build == 'true'
         uses: actions/checkout@v7
         with:
-          repository: JustVugg/colibri
+          repository: ${{ matrix.upstream }}
           ref: ${{ steps.ref.outputs.sha }}
           path: upstream
           persist-credentials: false
 
-      - uses: docker/setup-buildx-action@v4
+      - if: steps.changed.outputs.build == 'true'
+        uses: docker/setup-buildx-action@v4
 
-      - uses: docker/login-action@v3
+      - if: steps.changed.outputs.build == 'true'
+        uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push
+        if: steps.changed.outputs.build == 'true'
         id: build
         uses: docker/build-push-action@v7
         with:
           context: upstream
-          file: images/colibri/Dockerfile
+          file: ${{ matrix.dockerfile }}
+          build-args: |
+            ${{ matrix.engine && format('ENGINE={0}', matrix.engine) || '' }}
           platforms: linux/amd64   # built for x86-64-v3 (needs AVX2)
           push: true
           sbom: true
@@ -63,22 +114,27 @@ jobs:
           tags: |
             ${{ steps.ref.outputs.image }}:${{ steps.ref.outputs.short }}
           labels: |
-            org.opencontainers.image.source=https://github.com/JustVugg/colibri
+            org.opencontainers.image.source=https://github.com/${{ matrix.upstream }}
             org.opencontainers.image.revision=${{ steps.ref.outputs.sha }}
 
-      - uses: sigstore/cosign-installer@v3
+      - if: steps.changed.outputs.build == 'true'
+        uses: sigstore/cosign-installer@v3
 
       - name: Sign
+        if: steps.changed.outputs.build == 'true'
         run: cosign sign --yes "${{ steps.ref.outputs.image }}@${{ steps.build.outputs.digest }}"
 
-      - uses: actions/attest-build-provenance@v4
+      - if: steps.changed.outputs.build == 'true'
+        uses: actions/attest-build-provenance@v4
         with:
           subject-name: ${{ steps.ref.outputs.image }}
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true
 
       - name: Summary
+        if: steps.changed.outputs.build == 'true'
         run: |
+          echo "### ${{ matrix.name }}" >> "$GITHUB_STEP_SUMMARY"
           echo "Set in the HelmRelease values:" >> "$GITHUB_STEP_SUMMARY"
           echo '```yaml' >> "$GITHUB_STEP_SUMMARY"
           echo "image:" >> "$GITHUB_STEP_SUMMARY"

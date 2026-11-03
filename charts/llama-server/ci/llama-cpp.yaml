@@ -1,0 +1,14 @@
+# Profile: mainline llama.cpp. CI lints and renders every file here; the homelab
+# HelmRelease for the llama-cpp release carries the same values.
+fullnameOverride: llama-cpp
+image:
+  repository: ghcr.io/sifungurux/llama-cpp
+  # Placeholder for CI; the HelmRelease pins the digest from the image workflow.
+  digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+server:
+  threads: 4
+  threadsBatch: 8
+  flashAttn: "on"
+  extraArgs:
+    - --jinja          # chat template from the GGUF, needed for tool calls
+    - --no-webui       # the image is built without the UI anyway

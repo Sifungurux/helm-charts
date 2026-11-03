@@ -1,0 +1,35 @@
+[
+  {
+    "name": "colibri",
+    "namespace": "ai",
+    "deployment": "colibri",
+    "container": "colibri",
+    "service": "colibri",
+    "port": 5000,
+    "model": "qwen3-coder-30b",
+    "secret": "colibri-api-key",
+    "secretKey": "api-key"
+  },
+  {
+    "name": "llama-cpp",
+    "namespace": "ai",
+    "deployment": "llama-cpp",
+    "container": "llama-server",
+    "service": "llama-cpp",
+    "port": 8080,
+    "model": "qwen3-coder-30b",
+    "secret": "llama-server-api-key",
+    "secretKey": "api-key"
+  },
+  {
+    "name": "ik-llama-cpp",
+    "namespace": "ai",
+    "deployment": "ik-llama-cpp",
+    "container": "llama-server",
+    "service": "ik-llama-cpp",
+    "port": 8080,
+    "model": "qwen3-coder-30b",
+    "secret": "llama-server-api-key",
+    "secretKey": "api-key"
+  }
+]

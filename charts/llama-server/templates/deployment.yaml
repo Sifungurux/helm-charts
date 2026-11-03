@@ -1,0 +1,164 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "llama-server.fullname" . }}
+  labels:
+    {{- include "llama-server.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  strategy:
+    # RWO node-local volume and a single model in RAM: never run two pods.
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "llama-server.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        llama-server/model: {{ include "llama-server.markerContent" . | quote }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "llama-server.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: server
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      enableServiceLinks: false
+      automountServiceAccountToken: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- if .Values.modelDownload.waitForModel }}
+      initContainers:
+        # Waits (no network needed) until the download Job, this release's or
+        # the one owning a shared claim, has finished this exact model.
+        - name: wait-for-model
+          image: "{{ .Values.modelDownload.image.repository }}:{{ .Values.modelDownload.image.tag }}"
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              want={{ include "llama-server.markerContent" . | quote }}
+              marker={{ include "llama-server.marker" . | quote }}
+              until [ "$(cat "$marker" 2>/dev/null)" = "$want" ]; do
+                echo "waiting for $want"; sleep 15
+              done
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              memory: 64Mi
+          volumeMounts:
+            - name: models
+              mountPath: /model
+              readOnly: true
+      {{- end }}
+      containers:
+        - name: llama-server
+          image: {{ include "llama-server.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - --model
+            - {{ include "llama-server.modelPath" . | quote }}
+            - --alias
+            - {{ .Values.model.id | quote }}
+            - --host
+            - "0.0.0.0"
+            - --port
+            - {{ .Values.server.port | quote }}
+            - --ctx-size
+            - {{ .Values.server.ctxSize | quote }}
+            - --parallel
+            - {{ .Values.server.parallel | quote }}
+            {{- if .Values.server.threads }}
+            - --threads
+            - {{ .Values.server.threads | quote }}
+            {{- end }}
+            {{- if .Values.server.threadsBatch }}
+            - --threads-batch
+            - {{ .Values.server.threadsBatch | quote }}
+            {{- end }}
+            {{- with .Values.server.flashAttn }}
+            - --flash-attn
+            - {{ . | quote }}
+            {{- end }}
+            {{- if .Values.server.metrics }}
+            - --metrics
+            {{- end }}
+            {{- if .Values.apiKey.enabled }}
+            - --api-key-file
+            - /run/secrets/llama-server/api-key
+            {{- end }}
+            {{- range .Values.server.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
+          {{- with .Values.server.extraEnv }}
+          env:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.server.port }}
+              protocol: TCP
+          {{- with .Values.startupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          volumeMounts:
+            - name: models
+              mountPath: /model
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+            {{- if .Values.apiKey.enabled }}
+            - name: api-key
+              mountPath: /run/secrets/llama-server
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: {{ include "llama-server.claimName" . }}
+        - name: tmp
+          emptyDir: {}
+        {{- if .Values.apiKey.enabled }}
+        - name: api-key
+          secret:
+            secretName: {{ .Values.apiKey.existingSecret }}
+            defaultMode: 0440
+            items:
+              - key: {{ .Values.apiKey.secretKey }}
+                path: api-key
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
