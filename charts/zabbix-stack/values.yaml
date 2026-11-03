@@ -274,3 +274,28 @@ configure:
     #   expectStatus: 200
     #   verifyTls: true
     endpoints: []
+
+# =============================================================================
+# Triage CronJob: sends open problems (no "[triage]" message yet) to an
+# OpenAI-compatible LLM and adds its verdict to each as a problem message:
+# PAGE, TICKET or IGNORE, a possible duplicate and a short reason. It never
+# acknowledges, closes or changes severity. Logs in as Admin
+# (secret key admin-password) and reads the LLM key from existingSecret.
+# =============================================================================
+triage:
+  enabled: false
+  schedule: "*/5 * * * *"
+  # 2 = Warning and above (0 Not classified ... 5 Disaster).
+  minSeverity: 2
+  # Problems per run. At CPU prefill speeds ~30 problems is a 1-2 minute prompt.
+  maxBatch: 30
+  llm:
+    # Chat completions URL, e.g. http://llm.ai.svc.cluster.local:8080/v1/chat/completions
+    url: ""
+    model: ""
+    # Key in existingSecret holding the LLM API key.
+    apiKeyKey: llm-api-key
+    timeoutSeconds: 600
+  resources:
+    requests: { cpu: 20m, memory: 64Mi }
+    limits: { memory: 128Mi }

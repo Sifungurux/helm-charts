@@ -9,6 +9,9 @@ image:
   digest: sha256:173819c1b1f53085d972b99c0afce6b8b54cb3eedd5f0f6fb8538ba0f6c8ac03
   pullPolicy: IfNotPresent
 
+# -- 0 frees the node's RAM for another engine; the PVC and model stay.
+replicaCount: 1
+
 imagePullSecrets: []
 nameOverride: ""
 fullnameOverride: ""
