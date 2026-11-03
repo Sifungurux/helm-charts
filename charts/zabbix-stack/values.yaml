@@ -50,9 +50,11 @@ zabbix:
     # Only meaningful with zabbixServerHA (which needs an external database).
     haNodesAutoClean:
       enabled: false
+    # 1536Mi was OOM-killed 37 times in 30h on a 6-node rack: the Kubernetes
+    # templates' preprocessing parses a JSON document of every pod per check.
     resources:
-      requests: { cpu: 200m, memory: 512Mi }
-      limits: { memory: 1536Mi }
+      requests: { cpu: 200m, memory: 1Gi }
+      limits: { memory: 3Gi }
     extraEnv:
       - name: ZBX_STARTPINGERS
         value: "3"

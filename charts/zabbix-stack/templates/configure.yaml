@@ -1,7 +1,9 @@
 {{- if .Values.configure.enabled }}
 {{- $state := include "zs.configureState" . }}
 {{- $script := .Files.Get "files/configure.py" }}
-{{- $hash := sha256sum (printf "%s\n%s\n%s" $state $script (include "zs.configureImage" .)) | trunc 10 }}
+{{- /* The chart version is in the hash because it is in the pod labels: a Job's
+     template is immutable, so a new version must mean a new Job name. */}}
+{{- $hash := sha256sum (printf "%s\n%s\n%s\n%s" $state $script (include "zs.configureImage" .) .Chart.Version) | trunc 10 }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
