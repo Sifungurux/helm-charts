@@ -57,9 +57,14 @@ OpenAI-compatible chat endpoint (`triage.llm.url`, `triage.llm.model`). Each
 verdict becomes a problem message, visible in the problem's history:
 
 ```
-[triage] PAGE: PostgreSQL service down
-[triage] TICKET (duplicate of 4711): same failed CronJob pod
+[triage] PAGE: urgent: VPN is down, remote access is lost
+[triage] TICKET (duplicate of 4711): nightly CronJob failed; the next run retries it
 ```
+
+Each reason says why: the likely cause or impact and what makes it urgent or
+safe. Give the model facts it can't infer in `triage.context` (which node is
+deliberately full, what an outage of a service means); it is appended to the
+instructions and sent to the LLM, so keep secrets out of it.
 
 It only adds messages: it never acknowledges, closes or changes severity, so
 notification actions are unaffected. A problem without a usable verdict is

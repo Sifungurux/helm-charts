@@ -25,10 +25,13 @@ ACTIONS = ("page", "ticket", "ignore")
 SEVERITIES = ["Not classified", "Information", "Warning", "Average", "High", "Disaster"]
 
 PROMPT = (
-    "You triage Zabbix problems for a homelab Kubernetes rack (3 control planes, 3 workers). "
+    "You triage Zabbix problems for a Kubernetes cluster. "
     "For each problem, answer with exactly one JSON line and nothing else:\n"
     '{"eventid": "<id>", "action": "page"|"ticket"|"ignore", "duplicate_of": "<eventid>"|null, '
-    '"reason": "<at most 20 words>"}\n'
+    '"reason": "<at most 25 words>"}\n'
+    "reason says WHY this action: the likely cause or what it affects, and what makes it urgent or "
+    "safe to leave. Never restate the problem name. Bad: \"CPU requests over 50% on node-a\". "
+    "Good: \"expected: node-a is reserved for batch jobs, so high requests are by design\".\n"
     "page = needs a human now (outage, data at risk, security). ticket = real but can wait. "
     "ignore = noise or expected. A failed pod of a Job or CronJob (name ends in a numeric run suffix) "
     "is a ticket: the next run retries it. "
@@ -84,10 +87,10 @@ def ask(cfg, problems):
     body = {
         "model": cfg["model"],
         "messages": [
-            {"role": "system", "content": PROMPT},
+            {"role": "system", "content": PROMPT + (f"\n\nAbout this site:\n{cfg['context']}" if cfg.get("context") else "")},
             {"role": "user", "content": "\n".join(json.dumps(p) for p in problems)},
         ],
-        "max_tokens": 60 * len(problems) + 100,
+        "max_tokens": 80 * len(problems) + 100,
         "temperature": 0,
     }
     req = urllib.request.Request(

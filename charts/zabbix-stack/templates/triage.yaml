@@ -8,7 +8,8 @@
     "apiKeyKey" $t.llm.apiKeyKey
     "timeoutSeconds" $t.llm.timeoutSeconds
     "minSeverity" (int $t.minSeverity)
-    "maxBatch" (int $t.maxBatch))) }}
+    "maxBatch" (int $t.maxBatch)
+    "context" $t.context)) }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
