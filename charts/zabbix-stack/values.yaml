@@ -223,6 +223,16 @@ configure:
     # Creates hosts "k8s-cluster-state" (which discovers API server,
     # controller manager, scheduler and kubelet hosts) and "k8s-nodes".
     extraMacros: {}
+    # Extra templates on k8s-cluster-state that read custom resources through
+    # the API; each adds a ClusterRole to list them. flux: Kustomizations,
+    # HelmReleases, OCI/Git/Helm repositories not Ready for 15m (suspended ones
+    # are skipped). longhorn: volumes degraded for 30m or faulted, Longhorn
+    # nodes not Ready for 10m. flux needs Flux >= 2.6 (v1 source APIs); an
+    # API version that isn't served is skipped silently. Turning one off
+    # unlinks the template but leaves its items on the host: delete them, or
+    # its "no data" trigger fires.
+    flux: false
+    longhorn: false
 
   # Everything below is site-specific and empty by default. Set it in your
   # release values; keep addresses/URLs you don't want public in an encrypted

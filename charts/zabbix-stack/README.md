@@ -15,6 +15,7 @@ text can be passed in an encrypted values Secret (Flux `valuesFrom`).
 | --- | --- | --- |
 | Nodes | CPU, memory, disks, NICs, load, CPU temperature | zabbix-agent2 DaemonSet on every node (control plane included), active checks, autoregistration with a generated template |
 | Kubernetes | Node conditions, pods, workloads, PVs, API server, kubelets, scheduler, controller manager | kube-state-metrics + `Kubernetes cluster state by HTTP` and `Kubernetes nodes by HTTP` |
+| Flux, Longhorn (optional) | Flux objects not Ready; Longhorn volumes degraded or faulted, Longhorn nodes not Ready | script items on `k8s-cluster-state` reading the custom resources through the API (`configure.kubernetes.flux`, `.longhorn`) |
 | Network | Interfaces, errors, utilisation, reachability | SNMP v2c hosts from `configure.network.devices` |
 | Rack | UPS/PDU and similar | SNMP or ICMP hosts from `configure.rack.devices` |
 | Databases | PostgreSQL connections, replication, locks, slow queries, sizes | probe agent with the agent 2 PostgreSQL plugin |
@@ -41,6 +42,13 @@ whenever its config or script changes (the Job name is a hash of both). It:
 - creates the host groups, the node template (`configure.nodes.templateName`:
   Linux active + container path filters + CPU temperature triggers) and the
   autoregistration action;
+- with `configure.kubernetes.flux` / `.longhorn`, creates the templates
+  `Flux by Kubernetes API` / `Longhorn by Kubernetes API`, links them to
+  `k8s-cluster-state`, and the chart grants list access to their CRDs. They
+  read the API rather than Prometheus metrics: Flux 2.x no longer exports a
+  ready-condition metric, and each Longhorn manager reports only its own
+  volumes. Flux needs >= 2.6 (v1 source APIs). Problem names list the objects, e.g.
+  `Longhorn volumes degraded: netbird/netbird-data`;
 - unlinks the Linux agent template from the built-in "Zabbix server" host;
 - creates or updates the hosts in `configure.*`, tagged `managed-by=zabbix-stack`.
   Hosts removed from values are disabled, not deleted;
