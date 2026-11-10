@@ -79,6 +79,7 @@ is not a secret lives here; secrets are read from the mounted Secret.
       "stateEndpoint" (printf "%s-kube-state-metrics" .Release.Name)
       "nodesEndpoint" (printf "%s-zabbix-agent" (include "zs.subFullname" .))
       "enabled" (and $c.kubernetes.enabled (index .Values "kube-state-metrics" "enabled"))
+      "templateGroup" $c.nodes.templateGroup
     ) (deepCopy $c.kubernetes))
   "network" $c.network
   "rack" $c.rack
