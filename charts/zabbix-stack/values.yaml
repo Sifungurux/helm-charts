@@ -311,6 +311,10 @@ triage:
   # so a reason can say why (e.g. which node is deliberately full and why).
   # It reaches the LLM, not a secret: keep credentials out.
   context: ""
+  # Also post each PAGE verdict to the Discord webhook in existingSecret key
+  # configure.discord.webhookKey, linked to the problem when
+  # configure.discord.zabbixUrl is set. Works without configure.discord.enabled.
+  postPages: false
   llm:
     # Chat completions URL, e.g. http://llm.ai.svc.cluster.local:8080/v1/chat/completions
     url: ""

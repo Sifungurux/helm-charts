@@ -7,7 +7,7 @@ description: >-
   configuration Job that sets up hosts, templates and autoregistration through
   the Zabbix API.
 type: application
-version: 0.3.0
+version: 0.3.1
 # Zabbix version deployed by default (zabbixImageTag in the subchart values).
 appVersion: "7.0.23"
 kubeVersion: ">=1.29.0-0"

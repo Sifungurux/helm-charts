@@ -76,6 +76,12 @@ It only adds messages: it never acknowledges, closes or changes severity, so
 notification actions are unaffected. A problem without a usable verdict is
 retried next run. Runs never overlap (`concurrencyPolicy: Forbid`).
 
+With `triage.postPages` it also posts each PAGE verdict to the Discord webhook
+in `configure.discord.webhookKey`, with host, problem and a link to it. This
+reaches you for problems below the Discord action's severity, too. Mentions are
+disabled, since problem names are not trusted. A failed post fails the Job;
+the verdict stays on the problem and is not posted again.
+
 It logs in as Admin (`admin-password`) and reads the LLM key from
 `existingSecret` key `triage.llm.apiKeyKey` (`llm-api-key`). The LLM's own
 NetworkPolicy must admit this namespace.
