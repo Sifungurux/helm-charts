@@ -9,7 +9,9 @@
     "timeoutSeconds" $t.llm.timeoutSeconds
     "minSeverity" (int $t.minSeverity)
     "maxBatch" (int $t.maxBatch)
-    "context" $t.context)) }}
+    "context" $t.context
+    "discordWebhookKey" (ternary .Values.configure.discord.webhookKey "" $t.postPages)
+    "zabbixUrl" .Values.configure.discord.zabbixUrl)) }}
 apiVersion: v1
 kind: ConfigMap
 metadata:

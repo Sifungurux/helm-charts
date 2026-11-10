@@ -25,11 +25,12 @@ NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 # Interface types
 IF_AGENT, IF_SNMP = 1, 2
 # Item types / value types
-ITEM_ZABBIX_ACTIVE, VALUE_FLOAT = 7, 0
+ITEM_ZABBIX_ACTIVE, ITEM_DEPENDENT, ITEM_SCRIPT = 7, 18, 21
+VALUE_FLOAT, VALUE_UNSIGNED, VALUE_TEXT = 0, 3, 4
 # Macro types
 MACRO_TEXT, MACRO_SECRET = 0, 1
 # Trigger priorities
-WARNING, HIGH = 2, 4
+WARNING, AVERAGE, HIGH = 2, 3, 4
 
 
 def log(msg):
@@ -392,26 +393,148 @@ def fix_zabbix_server_host(zbx):
         log("unlinked 'Linux by Zabbix agent' from 'Zabbix server'")
 
 
+# Templates that read custom resources from the Kubernetes API, linked to
+# k8s-cluster-state, whose {$KUBE.API.URL} and {$KUBE.API.TOKEN} they use.
+# Flux dropped its ready-condition metric in 2.x and Longhorn's metrics are
+# split across its manager pods, so the API is the one complete source.
+# The script returns {check: [names]}; each check becomes a count, a name list
+# and a trigger (key, trigger name, minutes it must persist, priority).
+CRD_JS = r"""
+var p = JSON.parse(value), base = p.api_url.replace(/\/$/, '') + '/apis/';
+function list(path) {
+    var req = new HttpRequest();
+    req.addHeader('Authorization: Bearer ' + p.api_token);
+    var body = req.get(base + path);
+    if (req.getStatus() === 404) return [];  // CRD not installed
+    if (req.getStatus() !== 200) throw 'GET ' + path + ': ' + req.getStatus() + ' ' + body;
+    return JSON.parse(body).items;
+}
+function ready(o) {
+    var c = ((o.status || {}).conditions || []).filter(function (c) { return c.type === 'Ready'; });
+    return c.length > 0 && c[0].status === 'True';
+}
+"""
+CRD_TEMPLATES = {
+    "flux": {
+        "name": "Flux by Kubernetes API",
+        "script": CRD_JS + r"""
+var out = {not_ready: []};
+['kustomize.toolkit.fluxcd.io/v1/kustomizations', 'helm.toolkit.fluxcd.io/v2/helmreleases',
+ 'source.toolkit.fluxcd.io/v1/ocirepositories', 'source.toolkit.fluxcd.io/v1/gitrepositories',
+ 'source.toolkit.fluxcd.io/v1/helmrepositories'].forEach(function (path) {
+    list(path).forEach(function (o) {
+        if (!(o.spec || {}).suspend && !ready(o))
+            out.not_ready.push(path.split('/').pop() + ' ' + o.metadata.namespace + '/' + o.metadata.name);
+    });
+});
+return JSON.stringify(out);
+""",
+        # A failed signature check or upgrade leaves the object not Ready while
+        # the old version keeps running: worth a look, not an outage.
+        "checks": [("not_ready", "Flux objects not ready", 15, AVERAGE)],
+    },
+    "longhorn": {
+        "name": "Longhorn by Kubernetes API",
+        "script": CRD_JS + r"""
+var out = {degraded: [], faulted: [], nodes_not_ready: []};
+list('longhorn.io/v1beta2/volumes').forEach(function (v) {
+    var s = v.status || {}, k = s.kubernetesStatus || {};
+    var name = k.pvcName ? k.namespace + '/' + k.pvcName : v.metadata.name;
+    if (s.robustness === 'degraded') out.degraded.push(name);
+    if (s.robustness === 'faulted') out.faulted.push(name);
+});
+list('longhorn.io/v1beta2/nodes').forEach(function (n) {
+    if (!ready(n)) out.nodes_not_ready.push(n.metadata.name);
+});
+return JSON.stringify(out);
+""",
+        "checks": [
+            # Degraded = running on fewer replicas; normal for a while after a node drain.
+            ("degraded", "Longhorn volumes degraded", 30, AVERAGE),
+            ("faulted", "Longhorn volumes faulted", 0, HIGH),
+            ("nodes_not_ready", "Longhorn nodes not ready", 10, AVERAGE),
+        ],
+    },
+}
+
+
+def ensure_item(api, hostid, item):
+    found = api.call("item.get", {"hostids": [hostid], "filter": {"key_": [item["key_"]]}, "output": ["itemid"]})
+    if found:
+        api.call("item.update", dict(item, itemid=found[0]["itemid"]))
+        return found[0]["itemid"]
+    return api.call("item.create", dict(item, hostid=hostid))["itemids"][0]
+
+
+def ensure_crd_template(zbx, key, group):
+    api, spec = zbx.api, CRD_TEMPLATES[key]
+    name = spec["name"]
+    params = {
+        "host": name,
+        "name": name,
+        "description": "Managed by zabbix-stack. Reads custom resources through {$KUBE.API.URL}.",
+        "groups": [{"groupid": zbx.templategroup(group)}],
+    }
+    found = api.call("template.get", {"filter": {"host": [name]}, "output": ["templateid"]})
+    if found:
+        tid = found[0]["templateid"]
+        params.pop("host")
+        api.call("template.update", dict(params, templateid=tid))
+    else:
+        tid = api.call("template.create", params)["templateids"][0]
+        log(f"created template {name}")
+    zbx._templates[name] = tid
+
+    master = ensure_item(api, tid, {
+        "name": f"{name}: raw", "key_": f"{key}.crd.raw", "type": ITEM_SCRIPT, "value_type": VALUE_TEXT,
+        "delay": "1m", "history": "0", "timeout": "30s", "params": spec["script"],
+        "parameters": [{"name": "api_url", "value": "{$KUBE.API.URL}"},
+                       {"name": "api_token", "value": "{$KUBE.API.TOKEN}"}],
+    })
+    for check, title, minutes, priority in spec["checks"]:
+        def dependent(item_key, item_name, value_type, js):
+            return ensure_item(api, tid, {
+                "name": item_name, "key_": item_key, "type": ITEM_DEPENDENT, "master_itemid": master,
+                "value_type": value_type, "history": "7d",
+                "preprocessing": [{"type": 21, "params": js, "error_handler": 0, "error_handler_params": ""}],
+                "tags": [{"tag": "component", "value": key}],
+            })
+        count_key, names_key = f"{key}.{check}.count", f"{key}.{check}"
+        dependent(count_key, f"{title}: count", VALUE_UNSIGNED, f"return JSON.parse(value).{check}.length;")
+        dependent(names_key, title, VALUE_TEXT, f"return JSON.parse(value).{check}.join(', ');")
+        # The names item is in the expression only so the problem name can show them.
+        held = f"min(/{name}/{count_key},{minutes}m)" if minutes else f"last(/{name}/{count_key})"
+        ensure_trigger(api, tid, f"{title}: {{ITEM.LASTVALUE2}}",
+                       f'{held}>0 and last(/{name}/{names_key})<>""', priority)
+    # Without this an API or RBAC failure would look like "all healthy".
+    first = f"{key}.{spec['checks'][0][0]}.count"
+    ensure_trigger(api, tid, f"{name}: no data for 30m", f"nodata(/{name}/{first},30m)=1", WARNING)
+
+
 def configure_kubernetes(zbx, cfg, wanted):
     token = wait_for_file(os.environ.get("K8S_TOKEN_FILE", "/k8s-token/token"))
     extra = [macro(k, v) for k, v in (cfg.get("extraMacros") or {}).items()]
     base = [macro("{$KUBE.API.URL}", cfg["apiUrl"]), macro("{$KUBE.API.TOKEN}", token, True)]
+    crd = [CRD_TEMPLATES[k]["name"] for k in CRD_TEMPLATES if cfg.get(k)]
+    for k in CRD_TEMPLATES:
+        if cfg.get(k):
+            ensure_crd_template(zbx, k, cfg["templateGroup"])
     hosts = [
         (
             "k8s-cluster-state",
             "Kubernetes cluster state",
-            "Kubernetes cluster state by HTTP",
+            ["Kubernetes cluster state by HTTP"] + crd,
             [macro("{$KUBE.STATE.ENDPOINT.NAME}", cfg["stateEndpoint"])],
         ),
         (
             "k8s-nodes",
             "Kubernetes nodes",
-            "Kubernetes nodes by HTTP",
+            ["Kubernetes nodes by HTTP"],
             [macro("{$KUBE.NODES.ENDPOINT.NAME}", cfg["nodesEndpoint"])],
         ),
     ]
-    for host, name, template, own in hosts:
-        zbx.ensure_host(host, name, [cfg["group"]], [template], macros=base + own + extra,
+    for host, name, templates, own in hosts:
+        zbx.ensure_host(host, name, [cfg["group"]], templates, macros=base + own + extra,
                         tags=[{"tag": "role", "value": "kubernetes"}])
         wanted.add(host)
 

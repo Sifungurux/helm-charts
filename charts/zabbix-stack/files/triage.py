@@ -8,13 +8,15 @@ Each run takes the open problems at or above minSeverity that have no
 "[triage]" message yet, sends them in one batch to an OpenAI-compatible chat
 endpoint, and adds a message per problem: page, ticket or ignore, a possible
 duplicate and a one-line reason. It only adds messages (acknowledge action 4):
-it never acknowledges, closes or changes severity.
+it never acknowledges, closes or changes severity. Optionally it also posts the
+PAGE verdicts to a Discord webhook.
 """
 
 import json
 import os
 import sys
 import time
+import urllib.error
 import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -49,7 +51,8 @@ def log(msg):
     print(f"[triage] {msg}", flush=True)
 
 
-def pending(api, cfg):
+def pending(api, cfg, triggers):
+    """Problems to send to the model; fills triggers with eventid -> triggerid for links."""
     problems = api.call(
         "problem.get",
         {
@@ -66,6 +69,7 @@ def pending(api, cfg):
     if not todo:
         return []
     todo = todo[-cfg["maxBatch"]:]  # newest, if more are waiting than one batch holds
+    triggers.update((p["eventid"], p["objectid"]) for p in todo)
     hosts = {
         e["eventid"]: ",".join(h["host"] for h in e["hosts"])
         for e in api.call("event.get", {"eventids": [p["eventid"] for p in todo], "output": ["eventid"], "selectHosts": ["host"]})
@@ -135,6 +139,24 @@ def message(v, severity=0):
     return f"{msg}: {v['reason']}" if v["reason"] else msg
 
 
+def discord_text(p, msg, link=""):
+    text = f"**{p['host']}**: {p['name']}\n{msg}"
+    return (text + f"\n<{link}>" if link else text)[:2000]  # <...>: no link preview; 2000 = Discord's cap
+
+
+def post_discord(url, text):
+    # No mentions: problem names come from whoever names a pod or host.
+    body = {"content": text, "allowed_mentions": {"parse": []}}
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(body).encode(),
+        # Discord rejects urllib's default User-Agent.
+        headers={"Content-Type": "application/json", "User-Agent": "zabbix-stack-triage"},
+        method="POST",
+    )
+    urllib.request.urlopen(req, timeout=30).close()
+
+
 def main(path):
     with open(path, encoding="utf-8") as f:
         state = json.load(f)
@@ -143,7 +165,8 @@ def main(path):
     wait_for_api(api, timeout=120)
     login(api, rotate=False)
 
-    problems = pending(api, cfg)
+    triggers = {}
+    problems = pending(api, cfg, triggers)
     if not problems:
         log("nothing to triage")
         return
@@ -151,12 +174,25 @@ def main(path):
     started = time.time()
     verdicts = parse(ask(cfg, problems), {p["eventid"] for p in problems})
     log(f"model answered in {time.time() - started:.0f}s with {len(verdicts)} verdict(s)")
-    severity = {p["eventid"]: SEVERITIES.index(p["severity"]) for p in problems}
+    by_id = {p["eventid"]: p for p in problems}
+    webhook = secret(cfg["discordWebhookKey"]) if cfg.get("discordWebhookKey") else ""
+    failed = 0
     for eid, v in verdicts.items():
-        api.call("event.acknowledge", {"eventids": [eid], "action": 4, "message": message(v, severity[eid])})
+        msg = message(v, SEVERITIES.index(by_id[eid]["severity"]))
+        api.call("event.acknowledge", {"eventids": [eid], "action": 4, "message": msg})
+        if webhook and v["action"] == "page":
+            link = f"{cfg['zabbixUrl']}/tr_events.php?triggerid={triggers[eid]}&eventid={eid}" if cfg.get("zabbixUrl") else ""
+            try:
+                post_discord(webhook, discord_text(by_id[eid], msg, link))
+            except (urllib.error.URLError, OSError) as exc:
+                # The verdict is already on the problem, so it is not retried: fail the Job instead.
+                log(f"Discord post for {eid} failed: {exc}")
+                failed += 1
     missing = len(problems) - len(verdicts)
     if missing:
         log(f"{missing} problem(s) got no usable verdict; retried next run")
+    if failed:
+        sys.exit(1)
 
 
 def selftest():
@@ -173,6 +209,10 @@ def selftest():
     assert message(v["2"]) == "[triage] TICKET (duplicate of 1): same"
     assert message({"action": "ignore", "duplicate_of": None, "reason": "r"}, 4) == "[triage] TICKET: r"
     assert message({"action": "ignore", "duplicate_of": None, "reason": "r"}, 3) == "[triage] IGNORE: r"
+    p = {"host": "w1", "name": "VPN down"}
+    assert discord_text(p, "[triage] PAGE: r") == "**w1**: VPN down\n[triage] PAGE: r"
+    assert discord_text(p, "m", "https://z/x").endswith("\n<https://z/x>")
+    assert len(discord_text(p, "x" * 3000)) == 2000
     print("selftest ok")
 
 

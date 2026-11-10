@@ -4,6 +4,9 @@ zabbix:
   zabbixAgent:
     ZBX_PASSIVESERVERS: "127.0.0.1,192.0.2.0/26"
 configure:
+  kubernetes:
+    flux: true
+    longhorn: true
   network:
     devices:
       - name: gateway
@@ -38,6 +41,7 @@ configure:
     zabbixUrl: https://zabbix.example.com
 triage:
   enabled: true
+  postPages: true
   llm:
     url: http://llm.ai.svc.cluster.local:8080/v1/chat/completions
     model: qwen3-coder-30b

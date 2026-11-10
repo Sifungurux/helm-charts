@@ -1,0 +1,37 @@
+{{- $k := .Values.configure.kubernetes }}
+{{- if and .Values.configure.enabled $k.enabled (or $k.flux $k.longhorn) }}
+# Read access to the custom resources behind configure.kubernetes.flux and
+# .longhorn, for the ServiceAccount whose token the Kubernetes templates use.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "zs.prefix" . }}-zabbix-crd-reader
+  labels:
+    {{- include "zs.labels" . | nindent 4 }}
+rules:
+  {{- if $k.flux }}
+  - apiGroups: ["kustomize.toolkit.fluxcd.io", "helm.toolkit.fluxcd.io", "source.toolkit.fluxcd.io"]
+    resources: ["kustomizations", "helmreleases", "ocirepositories", "gitrepositories", "helmrepositories"]
+    verbs: ["list"]
+  {{- end }}
+  {{- if $k.longhorn }}
+  - apiGroups: ["longhorn.io"]
+    resources: ["volumes", "nodes"]
+    verbs: ["list"]
+  {{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "zs.prefix" . }}-zabbix-crd-reader
+  labels:
+    {{- include "zs.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "zs.prefix" . }}-zabbix-crd-reader
+subjects:
+  - kind: ServiceAccount
+    name: {{ default (include "zs.subFullname" .) (dig "serviceAccount" "name" "" .Values.zabbix) }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}
