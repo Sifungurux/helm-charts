@@ -33,6 +33,9 @@ configure:
       - name: website
         url: https://www.example.com/
         certificate: true
+  discord:
+    enabled: true
+    zabbixUrl: https://zabbix.example.com
 triage:
   enabled: true
   llm:

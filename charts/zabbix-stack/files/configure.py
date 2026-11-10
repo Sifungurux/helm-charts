@@ -19,6 +19,7 @@ import urllib.parse
 import urllib.request
 
 MANAGED_TAG = {"tag": "managed-by", "value": "zabbix-stack"}
+DISCORD_ACTION = "zabbix-stack: Discord"
 NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 
 # Interface types
@@ -529,6 +530,78 @@ def configure_services(zbx, cfg, wanted):
         )
 
 
+def ensure_global_macro(api, name, value):
+    found = api.call("usermacro.get", {"globalmacro": True, "filter": {"macro": name}, "output": ["globalmacroid", "value"]})
+    if not found:
+        api.call("usermacro.createglobal", {"macro": name, "value": value})
+    elif found[0]["value"] != value:
+        api.call("usermacro.updateglobal", {"globalmacroid": found[0]["globalmacroid"], "value": value})
+
+
+def configure_discord(zbx, cfg):
+    """Built-in Discord media type on Admin, and an action for problems at or above minSeverity.
+
+    Disabling it in values disables the action; the media stays.
+    """
+    api = zbx.api
+    found = api.call("action.get", {"filter": {"name": [DISCORD_ACTION]}, "output": ["actionid", "status"]})
+    if not cfg.get("enabled"):
+        if found and found[0]["status"] == "0":
+            api.call("action.update", {"actionid": found[0]["actionid"], "status": 1})
+            log(f"disabled action {DISCORD_ACTION}")
+        return
+
+    # The media type builds its problem links from this macro and fails without it.
+    ensure_global_macro(api, "{$ZABBIX.URL}", cfg["zabbixUrl"])
+    mt = api.call("mediatype.get", {"filter": {"name": ["Discord"]}, "output": ["mediatypeid", "status"]})
+    if not mt:
+        raise ApiError("media type Discord not found")
+    mtid = mt[0]["mediatypeid"]
+    if mt[0]["status"] != "0":
+        api.call("mediatype.update", {"mediatypeid": mtid, "status": 0})
+        log("enabled media type Discord")
+
+    # user.update replaces all medias: keep Admin's others as they are.
+    user = api.call(
+        "user.get",
+        {"filter": {"username": "Admin"}, "output": ["userid"],
+         "selectMedias": ["mediatypeid", "sendto", "active", "severity", "period"]},
+    )[0]
+    fields = ("mediatypeid", "sendto", "active", "severity", "period")
+    medias = [{k: m[k] for k in fields} for m in user["medias"] if m["mediatypeid"] != mtid]
+    medias.append({"mediatypeid": mtid, "sendto": secret(cfg["webhookKey"]), "active": 0, "severity": 63,
+                   "period": "1-7,00:00-24:00"})
+    api.call("user.update", {"userid": user["userid"], "medias": medias})
+
+    params = {
+        "name": DISCORD_ACTION,
+        "eventsource": 0,
+        "status": 0,
+        "esc_period": "1h",
+        "filter": {
+            "evaltype": 0,
+            "conditions": [
+                # 4 = trigger severity, 5 = greater or equal
+                {"conditiontype": 4, "operator": 5, "value": str(cfg["minSeverity"])},
+                # 16 = problem is suppressed (maintenance), 11 = no
+                {"conditiontype": 16, "operator": 11},
+            ],
+        },
+        "operations": [
+            {"operationtype": 0, "opmessage": {"default_msg": 1, "mediatypeid": mtid},
+             "opmessage_usr": [{"userid": user["userid"]}]},
+        ],
+        # 11 = notify all involved. No update operations: every triage message would post.
+        "recovery_operations": [{"operationtype": 11, "opmessage": {"default_msg": 1}}],
+    }
+    if found:
+        params.pop("eventsource")
+        api.call("action.update", dict(params, actionid=found[0]["actionid"]))
+    else:
+        api.call("action.create", params)
+        log(f"created action {DISCORD_ACTION}")
+
+
 # --------------------------------------------------------------------------- #
 def main(path):
     with open(path, encoding="utf-8") as f:
@@ -557,6 +630,7 @@ def main(path):
     configure_snmp_devices(zbx, state["rack"].get("devices"), state["rack"]["group"], community, "rack", wanted)
     configure_databases(zbx, state["databases"], wanted)
     configure_services(zbx, state["services"], wanted)
+    configure_discord(zbx, state["discord"])
 
     zbx.disable_stale(wanted)
     log(f"done: {len(wanted)} managed hosts")
