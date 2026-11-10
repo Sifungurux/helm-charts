@@ -89,6 +89,10 @@ is not a secret lives here; secrets are read from the mounted Secret.
       "selfMonitor" (and $c.databases.selfMonitor (dig "postgresql" "enabled" true .Values.zabbix))
     ) (deepCopy $c.databases))
   "services" (merge (dict "probeHost" (include "zs.probeHost" .) "probeEnabled" .Values.probeAgent.enabled) (deepCopy $c.services))
+  "discord" $c.discord
 -}}
+{{- if $c.discord.enabled }}
+{{- $_ := required "configure.discord.zabbixUrl is required when configure.discord.enabled" $c.discord.zabbixUrl }}
+{{- end }}
 {{- toJson $state }}
 {{- end }}

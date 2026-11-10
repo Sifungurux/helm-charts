@@ -43,7 +43,13 @@ whenever its config or script changes (the Job name is a hash of both). It:
   autoregistration action;
 - unlinks the Linux agent template from the built-in "Zabbix server" host;
 - creates or updates the hosts in `configure.*`, tagged `managed-by=zabbix-stack`.
-  Hosts removed from values are disabled, not deleted.
+  Hosts removed from values are disabled, not deleted;
+- with `configure.discord.enabled`, enables the built-in Discord media type,
+  gives Admin a Discord media with the webhook URL from secret key
+  `configure.discord.webhookKey`, sets `{$ZABBIX.URL}` to
+  `configure.discord.zabbixUrl` and creates the action `zabbix-stack: Discord`
+  for problems at or above `configure.discord.minSeverity` (High). Recoveries
+  are sent too; triage messages and maintenance-suppressed problems are not.
 
 The Job's ConfigMap holds the desired state (addresses, URLs) but never
 secrets: those are read from the mounted `existingSecret` at run time.
@@ -79,7 +85,7 @@ NetworkPolicy must admit this namespace.
 `existingSecret` must contain `db-name`, `db-user`, `db-password`,
 `admin-password`; `snmp-community` when SNMP devices are configured; and every
 key named in `configure.databases.instances[].passwordKey`; `llm-api-key` when
-`triage.enabled`.
+`triage.enabled`; `discord-webhook-url` when `configure.discord.enabled`.
 
 ## Install with Flux
 
@@ -103,6 +109,8 @@ reading site values from a Secret created with kubectl), listed in
 - **kubeadm controller manager and scheduler** listen on 127.0.0.1 by default,
   so their discovered hosts are unreachable unless `bind-address` is changed.
 - **TimescaleDB** must be chosen before the first install (see `values.yaml`).
+- **Discord** must be reachable from the Zabbix server pod (egress to
+  discord.com:443) if your namespace restricts egress.
 - **Persistence** uses the default StorageClass unless one is set.
 
 ## CI

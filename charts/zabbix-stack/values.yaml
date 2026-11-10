@@ -277,6 +277,22 @@ configure:
     #   verifyTls: true
     endpoints: []
 
+  # --- Alerts: problems to a Discord channel ---------------------------------
+  # Enables the built-in Discord media type, adds it to Admin and creates the
+  # action "zabbix-stack: Discord": problem and recovery messages from
+  # minSeverity up, none while a host is in maintenance.
+  discord:
+    enabled: false
+    # Key in existingSecret holding the channel's webhook URL. It is stored as
+    # Admin's media "send to", so Super admins can read it in the frontend.
+    # The Job does not rerun when only the Secret changes: bump something here.
+    webhookKey: discord-webhook-url
+    # 4 = High and above (0 Not classified ... 5 Disaster).
+    minSeverity: 4
+    # Frontend URL for the links in each message (global macro {$ZABBIX.URL}),
+    # e.g. https://zabbix.example.com. Required when enabled.
+    zabbixUrl: ""
+
 # =============================================================================
 # Triage CronJob: sends open problems (no "[triage]" message yet) to an
 # OpenAI-compatible LLM and adds its verdict to each as a problem message:
